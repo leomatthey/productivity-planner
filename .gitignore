@@ -1,0 +1,11 @@
+.env
+.env.save
+data/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.Rhistory
+.claude/
+productivity_planner_spec_v2.1.docx
+.streamlit/secrets.toml
