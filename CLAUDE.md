@@ -1098,4 +1098,7 @@ Fields: `key` (PK), `value`, `updated_at`
 | v1 Phases 1–11 | Feb 2026 | Full Streamlit prototype — all 11 phases complete |
 | Stack decision | Mar 2026 | Moved from Streamlit to FastAPI + React + Tailwind + shadcn/ui |
 | Design spec | Mar 2026 | Full design system defined (productivity_planner_design_spec.md) |
-| *(Sprint 0 entry goes here after completion)* | | |
+| Sprint 0 | Mar 2026 | Frontend scaffold, design system, all stubs — complete |
+| Sprint 1 | Mar 2026 | FastAPI backend, all 7 routers, bug fixes — complete |
+| Sprint 2 | Mar 2026 | Agent upgrades, streaming SSE, context truncation — complete |
+| Sprint 3 | Mar 2026 | All 8 React pages fully implemented, React Query, Toaster — complete |

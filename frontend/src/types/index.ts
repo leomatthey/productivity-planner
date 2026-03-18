@@ -111,6 +111,7 @@ export interface CreateTaskRequest {
 
 export interface UpdateTaskRequest extends Partial<CreateTaskRequest> {
   scheduled_at?: string
+  current_updated_at?: string
 }
 
 export interface CreateGoalRequest {
