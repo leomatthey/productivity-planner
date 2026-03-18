@@ -276,6 +276,7 @@ export const ai = {
 // Analytics
 // ---------------------------------------------------------------------------
 
+/** Legacy shape — kept for any component that still references it. */
 export interface DbStats {
   tasks_total: number
   tasks_active: number
@@ -289,8 +290,110 @@ export interface DbStats {
   ai_messages: number
 }
 
+// Rich aggregated stats returned by GET /api/analytics/stats (Sprint 4)
+export interface WeekStat {
+  week: string
+  total: number
+  completed: number
+  rate: number
+}
+
+export interface HabitStat {
+  id: number
+  title: string
+  completion_rate_30d: number
+  completions_30d: number
+  streak_current: number
+  streak_best: number
+  best_day_of_week: string | null
+}
+
+export interface AnalyticsStats {
+  tasks: {
+    total: number
+    completed: number
+    in_progress: number
+    todo: number
+    cancelled: number
+    overdue: number
+    completion_rate: number
+    completion_by_week: WeekStat[]
+    avg_completion_hours: number
+    priority_breakdown: Record<string, number>
+    tag_breakdown: Record<string, number>
+  }
+  habits: {
+    habits: HabitStat[]
+    total_active: number
+  }
+  goals: {
+    total: number
+    completed: number
+    in_progress: number
+    paused: number
+    avg_progress_pct: number
+    progress_distribution: Record<string, number>
+  }
+  calendar: {
+    total_events: number
+    by_type: Record<string, number>
+    busiest_days: { day: string; count: number }[]
+    busiest_hours: { hour: number; count: number }[]
+  }
+}
+
+// LLM insights response schema (POST /api/analytics/insights)
+export type InsightTrend = 'up' | 'down' | 'neutral'
+export type InsightSeverity = 'positive' | 'neutral' | 'warning'
+export type InsightPriority = 'high' | 'medium' | 'low'
+
+/**
+ * Metric keys returned by Claude — each key maps 1-to-1 to a chart card
+ * so the frontend can add a visual ring highlight driven by LLM output.
+ */
+export type InsightMetricKey =
+  | 'task_completion_rate'
+  | 'habit_completion_rate'
+  | 'goal_progress'
+  | 'overdue_tasks'
+  | 'tasks_this_week'
+  | 'top_habit_streak'
+
+export interface InsightHighlight {
+  metric: InsightMetricKey
+  value: string
+  trend: InsightTrend
+  insight: string
+}
+
+export interface InsightPattern {
+  title: string
+  description: string
+  severity: InsightSeverity
+}
+
+export interface InsightRecommendation {
+  action: string
+  rationale: string
+  priority: InsightPriority
+}
+
+export interface InsightFocusSuggestion {
+  area: string
+  reason: string
+}
+
+export interface AnalyticsInsights {
+  highlights: InsightHighlight[]
+  patterns: InsightPattern[]
+  recommendations: InsightRecommendation[]
+  focus_suggestion: InsightFocusSuggestion
+}
+
 export const analytics = {
-  stats: () => get<DbStats>('/analytics/stats'),
+  stats: () => get<AnalyticsStats>('/analytics/stats'),
+  insights: (stats: AnalyticsStats) =>
+    post<AnalyticsInsights>('/analytics/insights', { stats }),
 }
 
 // ---------------------------------------------------------------------------

@@ -705,6 +705,182 @@ def get_sessions() -> List[str]:
 #  ADMIN / STATS
 # ============================================================================
 
+def get_analytics_stats() -> dict:
+    """
+    Return rich aggregated analytics data for the Analytics page.
+
+    Covers: task stats (weekly trend, priority, tags), habit stats (30-day
+    completion rate, streaks, best day), goal stats (status + progress
+    distribution), and calendar stats (by type, busiest hours/days).
+    """
+    today = date.today()
+
+    with get_session() as session:
+        # ---- TASK STATS ----
+        all_tasks = session.query(Task).filter(Task.deleted_at.is_(None)).all()
+        task_total = len(all_tasks)
+        task_completed = sum(1 for t in all_tasks if t.status == "done")
+        task_in_progress = sum(1 for t in all_tasks if t.status == "in_progress")
+        task_todo = sum(1 for t in all_tasks if t.status == "todo")
+        task_cancelled = sum(1 for t in all_tasks if t.status == "cancelled")
+        task_overdue = sum(
+            1 for t in all_tasks
+            if t.due_date and t.due_date < today and t.status not in ("done", "cancelled")
+        )
+
+        # Completion by week — last 8 complete weeks (Mon → Sun)
+        completion_by_week = []
+        for i in range(7, -1, -1):
+            week_start = today - timedelta(days=today.weekday()) - timedelta(weeks=i)
+            week_end = week_start + timedelta(days=6)
+            week_tasks = [
+                t for t in all_tasks
+                if t.created_at and week_start <= t.created_at.date() <= week_end
+            ]
+            week_done = sum(1 for t in week_tasks if t.status == "done")
+            completion_by_week.append({
+                "week": week_start.strftime("%b %d"),
+                "total": len(week_tasks),
+                "completed": week_done,
+                "rate": round((week_done / len(week_tasks) * 100) if week_tasks else 0, 1),
+            })
+
+        # Avg completion time: created_at → updated_at for done tasks
+        done_tasks_timed = [
+            t for t in all_tasks
+            if t.status == "done" and t.created_at and t.updated_at
+        ]
+        if done_tasks_timed:
+            total_secs = sum(
+                (t.updated_at - t.created_at).total_seconds() for t in done_tasks_timed
+            )
+            avg_completion_hours = round(total_secs / len(done_tasks_timed) / 3600, 1)
+        else:
+            avg_completion_hours = 0.0
+
+        # Priority breakdown
+        priority_breakdown = {}  # type: dict
+        for t in all_tasks:
+            p = t.priority or "medium"
+            priority_breakdown[p] = priority_breakdown.get(p, 0) + 1
+
+        # Tag breakdown
+        tag_breakdown = {}  # type: dict
+        for t in all_tasks:
+            if t.tags:
+                for tag in [x.strip() for x in t.tags.split(",") if x.strip()]:
+                    tag_breakdown[tag] = tag_breakdown.get(tag, 0) + 1
+
+        # ---- HABIT STATS ----
+        habits = session.query(Habit).filter(Habit.is_active == True).all()
+        period_start = today - timedelta(days=29)  # last 30 days inclusive
+        habit_stats = []
+        dow_names = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        for habit in habits:
+            completions = (
+                session.query(HabitCompletion)
+                .filter(
+                    HabitCompletion.habit_id == habit.id,
+                    HabitCompletion.completed_date >= period_start,
+                    HabitCompletion.completed_date <= today,
+                )
+                .all()
+            )
+            completed_days = {c.completed_date for c in completions}
+            dow_counts = {}  # type: dict
+            for c in completions:
+                dow = c.completed_date.weekday()
+                dow_counts[dow] = dow_counts.get(dow, 0) + 1
+            best_dow = max(dow_counts, key=lambda k: dow_counts[k]) if dow_counts else None
+            habit_stats.append({
+                "id": habit.id,
+                "title": habit.title,
+                "completion_rate_30d": round(len(completed_days) / 30 * 100, 1),
+                "completions_30d": len(completed_days),
+                "streak_current": habit.streak_current or 0,
+                "streak_best": habit.streak_best or 0,
+                "best_day_of_week": dow_names[best_dow] if best_dow is not None else None,
+            })
+
+        # ---- GOAL STATS ----
+        all_goals = session.query(Goal).filter(Goal.deleted_at.is_(None)).all()
+        goal_total = len(all_goals)
+        goal_completed = sum(1 for g in all_goals if g.status == "completed")
+        goal_in_progress = sum(1 for g in all_goals if g.status == "active")
+        goal_paused = sum(1 for g in all_goals if g.status == "paused")
+        avg_progress = (
+            round(sum(g.progress_pct or 0 for g in all_goals) / goal_total, 1)
+            if goal_total else 0.0
+        )
+        progress_distribution = {"0-25": 0, "26-50": 0, "51-75": 0, "76-100": 0}
+        for g in all_goals:
+            pct = g.progress_pct or 0
+            if pct <= 25:
+                progress_distribution["0-25"] += 1
+            elif pct <= 50:
+                progress_distribution["26-50"] += 1
+            elif pct <= 75:
+                progress_distribution["51-75"] += 1
+            else:
+                progress_distribution["76-100"] += 1
+
+        # ---- CALENDAR STATS ----
+        events = session.query(CalendarEvent).filter(CalendarEvent.deleted_at.is_(None)).all()
+        event_by_type = {}  # type: dict
+        for e in events:
+            et = e.event_type or "personal"
+            event_by_type[et] = event_by_type.get(et, 0) + 1
+
+        day_counts_cal = {i: 0 for i in range(7)}
+        hour_counts_cal = {i: 0 for i in range(24)}
+        for e in events:
+            if e.start_datetime:
+                day_counts_cal[e.start_datetime.weekday()] += 1
+                hour_counts_cal[e.start_datetime.hour] += 1
+
+        cal_dow_labels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+        busiest_days = [
+            {"day": cal_dow_labels[i], "count": day_counts_cal[i]} for i in range(7)
+        ]
+        busiest_hours = [
+            {"hour": i, "count": hour_counts_cal[i]} for i in range(24)
+        ]
+
+        return {
+            "tasks": {
+                "total": task_total,
+                "completed": task_completed,
+                "in_progress": task_in_progress,
+                "todo": task_todo,
+                "cancelled": task_cancelled,
+                "overdue": task_overdue,
+                "completion_rate": round(task_completed / task_total * 100, 1) if task_total else 0.0,
+                "completion_by_week": completion_by_week,
+                "avg_completion_hours": avg_completion_hours,
+                "priority_breakdown": priority_breakdown,
+                "tag_breakdown": tag_breakdown,
+            },
+            "habits": {
+                "habits": habit_stats,
+                "total_active": len(habits),
+            },
+            "goals": {
+                "total": goal_total,
+                "completed": goal_completed,
+                "in_progress": goal_in_progress,
+                "paused": goal_paused,
+                "avg_progress_pct": avg_progress,
+                "progress_distribution": progress_distribution,
+            },
+            "calendar": {
+                "total_events": len(events),
+                "by_type": event_by_type,
+                "busiest_days": busiest_days,
+                "busiest_hours": busiest_hours,
+            },
+        }
+
+
 def get_db_stats() -> dict:
     """Return total and active row counts for every table."""
     with get_session() as session:
