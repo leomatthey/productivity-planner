@@ -1101,6 +1101,110 @@ def _exec_suggest_schedule(args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
+#  apply_schedule tool — Sprint 2
+#  Batch-schedules N tasks in a single tool call, replacing N update_task calls.
+# ---------------------------------------------------------------------------
+
+_APPLY_SCHEDULE: dict = {
+    "name": "apply_schedule",
+    "description": (
+        "Apply a schedule to multiple tasks in a single batch call. "
+        "Accepts a list of {task_id, scheduled_date, scheduled_time?} objects and "
+        "sets the scheduled_at field on each task. "
+        "Use this instead of calling update_task N times — it avoids hitting the "
+        "tool-call iteration limit when scheduling a full day's worth of tasks. "
+        "Returns a summary with updated and error counts."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "description": "List of task schedule entries to apply.",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "task_id": {
+                            "type": "integer",
+                            "description": "ID of the task to schedule.",
+                        },
+                        "scheduled_date": {
+                            "type": "string",
+                            "description": "ISO date string (YYYY-MM-DD) for the scheduled day.",
+                        },
+                        "scheduled_time": {
+                            "type": "string",
+                            "description": (
+                                "Optional time string (HH:MM) for the start time. "
+                                "Defaults to 09:00 if omitted."
+                            ),
+                        },
+                    },
+                    "required": ["task_id", "scheduled_date"],
+                },
+            },
+        },
+        "required": ["items"],
+    },
+}
+
+
+def _exec_apply_schedule(args: dict) -> dict:
+    items = args.get("items", [])
+    if not items:
+        return {"error": "No items provided to apply_schedule."}
+
+    updated = []
+    errors = []
+
+    for item in items:
+        task_id = item.get("task_id")
+        scheduled_date_str = item.get("scheduled_date")
+        scheduled_time_str = item.get("scheduled_time", "09:00")
+
+        if not task_id or not scheduled_date_str:
+            errors.append(
+                f"Missing task_id or scheduled_date in item: {item}"
+            )
+            continue
+
+        try:
+            date_obj = _parse_date(scheduled_date_str)
+            if not date_obj:
+                errors.append(
+                    f"Invalid scheduled_date '{scheduled_date_str}' for task {task_id}."
+                )
+                continue
+
+            try:
+                parts = (scheduled_time_str or "09:00").split(":")
+                hour = int(parts[0])
+                minute = int(parts[1]) if len(parts) > 1 else 0
+            except Exception:
+                hour, minute = 9, 0
+
+            from datetime import time as time_
+            scheduled_dt = datetime.combine(date_obj, time_(hour, minute))
+
+            task = crud.update_task(task_id, scheduled_at=scheduled_dt)
+            updated.append({
+                "task_id": task_id,
+                "title": task.title,
+                "scheduled_at": _dt_str(task.scheduled_at),
+            })
+
+        except Exception as exc:
+            errors.append(f"Failed to schedule task {task_id}: {exc}")
+
+    return {
+        "updated_count": len(updated),
+        "updated": updated,
+        "error_count": len(errors),
+        "errors": errors,
+    }
+
+
+# ---------------------------------------------------------------------------
 #  Google Calendar sync tool definition  (Phase 11)
 # ---------------------------------------------------------------------------
 
@@ -1159,6 +1263,7 @@ HABIT_TOOLS: list[dict]     = [_GET_HABITS, _MARK_HABIT_COMPLETE, _UNMARK_HABIT_
 CALENDAR_TOOLS: list[dict]  = [_GET_EVENTS, _CREATE_EVENT, _UPDATE_EVENT, _DELETE_EVENT]
 AGGREGATE_TOOLS: list[dict] = [_GET_TODAY_OVERVIEW, _GET_WEEKLY_SUMMARY, _SUGGEST_SCHEDULE]
 INTEGRATION_TOOLS: list[dict] = [_SYNC_GOOGLE_CALENDAR]
+SCHEDULING_TOOLS: list[dict] = [_APPLY_SCHEDULE]  # Sprint 2
 
 # Flat list passed to the Claude API `tools` parameter
 ALL_TOOLS: list[dict] = [
@@ -1168,6 +1273,7 @@ ALL_TOOLS: list[dict] = [
     *CALENDAR_TOOLS,
     *AGGREGATE_TOOLS,
     *INTEGRATION_TOOLS,
+    *SCHEDULING_TOOLS,
 ]
 
 _EXECUTORS: dict[str, Callable[[dict], dict]] = {
@@ -1190,6 +1296,7 @@ _EXECUTORS: dict[str, Callable[[dict], dict]] = {
     "get_weekly_summary":      _exec_get_weekly_summary,
     "suggest_schedule":        _exec_suggest_schedule,
     "sync_google_calendar":    _exec_sync_google_calendar,
+    "apply_schedule":          _exec_apply_schedule,   # Sprint 2
 }
 
 

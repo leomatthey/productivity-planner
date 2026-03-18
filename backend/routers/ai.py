@@ -2,21 +2,25 @@
 backend/routers/ai.py — AI agent chat endpoint.
 
 Reconstructs full conversation history (including tool_use / tool_result pairs)
-from the DB before calling run_agent.
+from the DB before calling run_agent_stream.
 
-# TODO: Sprint 2 — replace with StreamingResponse (SSE) for real-time streaming.
+Sprint 2: /chat now returns a StreamingResponse (SSE).
+  - Tool-use loop completes fully before streaming begins.
+  - Each SSE event: "data: <token>\\n\\n"
+  - Final sentinel: "data: [DONE]\\n\\n"
 """
 
 from __future__ import annotations
 
 import json
-from typing import List, Optional
+from typing import Generator, List, Optional
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 import db.crud as crud
-from agent.agent import run_agent
+from agent.agent import run_agent, run_agent_stream
 
 router = APIRouter()
 
@@ -138,32 +142,32 @@ def _load_session(session_id: str) -> List[dict]:
 #  Endpoints
 # ---------------------------------------------------------------------------
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post("/chat")
 def chat(body: ChatRequest):
     """
-    Send a user message to the AI agent and receive a response.
+    Send a user message to the AI agent and receive a streaming SSE response.
 
-    Loads the full conversation history from the DB (including tool call
-    history), appends the new user message, and runs the agent loop.
+    The agent tool-use loop completes fully before streaming begins.
+    Tokens are emitted as: data: <token>\\n\\n
+    A final sentinel is emitted: data: [DONE]\\n\\n
+
+    Sprint 2: returns StreamingResponse (text/event-stream).
     """
     history = _load_session(body.session_id)
-
-    # Append the new user message
     history.append({"role": "user", "content": body.message})
 
-    try:
-        response_text, tool_calls = run_agent(
-            messages=history,
-            session_id=body.session_id,
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=str(exc))
+    def event_stream() -> Generator[str, None, None]:
+        try:
+            for chunk in run_agent_stream(
+                messages=history,
+                session_id=body.session_id,
+            ):
+                yield chunk
+        except Exception as exc:
+            yield f"data: [ERROR] {exc}\n\n"
+            yield "data: [DONE]\n\n"
 
-    return ChatResponse(
-        response=response_text,
-        tool_calls=tool_calls,
-        session_id=body.session_id,
-    )
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.get("/sessions")
