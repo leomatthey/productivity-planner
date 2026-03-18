@@ -1,862 +1,1101 @@
-# Productivity Planner — Claude Code Briefing
+# Productivity Planner — Claude Code Briefing (v3)
 
-This file is the authoritative context document for this codebase.
-Read it fully at the start of every new session before touching any file.
-
----
-
-## What to Build This Session
-
-**All 11 phases are complete.** The productivity planner is fully implemented.
-
-### Reminder: session workflow
-
-At the end of every phase, update this file before closing the window:
-1. Mark the phase ✅ **COMPLETE** in the Build Phases table
-2. Add implementation notes to the Pages section
-3. Update agent tools table if tools were added
-4. Update "What to Build This Session" to the next phase
-
-Then open a **new Claude Code window** for the next phase. Each phase fits comfortably in a
-single window; do not carry multiple phases in one window.
+Read this file **fully** before touching any file, every session.
+The most important section is **CURRENT SPRINT** directly below.
+Do exactly what it says and nothing outside it.
 
 ---
 
-## Build Phases — Status
+## CURRENT SPRINT
 
-| Phase | What | Status |
+**→ Sprint 0: Project Setup & Design System**
+
+### What to build
+
+Set up the full frontend project scaffold and implement the complete design system.
+Do not write any page components yet — only the shell, the tokens, and the plumbing.
+
+### Files to create
+
+```
+frontend/
+├── index.html
+├── vite.config.ts
+├── tsconfig.json
+├── tsconfig.node.json
+├── package.json                  (see dependencies list below)
+├── tailwind.config.ts            (full config — see design spec section)
+├── postcss.config.js
+└── src/
+    ├── main.tsx
+    ├── App.tsx                   (router setup with placeholder routes)
+    ├── styles/
+    │   └── globals.css           (full CSS — see design spec section)
+    ├── lib/
+    │   ├── theme.ts              (design tokens as TS constants)
+    │   └── api.ts                (typed API client stub — empty for now)
+    ├── components/
+    │   ├── ui/                   (shadcn/ui components land here — do not create manually)
+    │   └── layout/
+    │       ├── Sidebar.tsx       (full sidebar with nav items)
+    │       ├── TopBar.tsx        (page title + action slot)
+    │       └── AppShell.tsx      (Sidebar + TopBar + content area)
+    ├── pages/
+    │   ├── Dashboard.tsx         (stub: just <h1>Dashboard</h1>)
+    │   ├── Tasks.tsx             (stub)
+    │   ├── Goals.tsx             (stub)
+    │   ├── Calendar.tsx          (stub)
+    │   ├── Habits.tsx            (stub)
+    │   ├── AIAssistant.tsx       (stub)
+    │   ├── Analytics.tsx         (stub)
+    │   └── Settings.tsx          (stub)
+    └── types/
+        └── index.ts              (TypeScript types mirroring DB schema)
+```
+
+### Do not create
+
+Any backend files. Any page logic. Any API calls.
+
+### Step-by-step execution
+
+**Step 1 — Initialise the frontend project**
+```bash
+cd /path/to/productivity-planner
+npm create vite@latest frontend -- --template react-ts
+cd frontend
+```
+
+**Step 2 — Install all dependencies**
+```bash
+# Core
+npm install react-router-dom
+
+# Tailwind
+npm install -D tailwindcss postcss autoprefixer tailwindcss-animate
+npx tailwindcss init -p
+
+# shadcn/ui
+npx shadcn@latest init
+# When prompted: Style=Default, Base colour=Slate, CSS variables=Yes
+# Then override the CSS variables with the exact values in the design spec below
+
+# shadcn/ui components
+npx shadcn@latest add button input textarea select checkbox badge
+npx shadcn@latest add dialog drawer sheet popover tooltip
+npx shadcn@latest add card separator progress tabs
+npx shadcn@latest add sonner command
+
+# Fonts (no network dependency, no FOUC)
+npm install @fontsource/inter @fontsource/jetbrains-mono
+
+# Icons
+npm install lucide-react
+
+# Charts (for Analytics page, install now)
+npm install recharts
+
+# Utility
+npm install clsx tailwind-merge class-variance-authority
+```
+
+**Step 3 — Write `tailwind.config.ts`** (exact content in design spec below)
+
+**Step 4 — Write `src/styles/globals.css`** (exact content in design spec below)
+
+**Step 5 — Write `src/lib/theme.ts`** (exact content in design spec below)
+
+**Step 6 — Write `src/types/index.ts`** (TypeScript types — see schema section below)
+
+**Step 7 — Write `src/lib/api.ts`** (typed API client — see API section below)
+
+**Step 8 — Build the AppShell** (`Sidebar.tsx`, `TopBar.tsx`, `AppShell.tsx`)
+Full implementation of sidebar and top bar — see layout spec below.
+All page stubs just render `<AppShell><h1>Page Name</h1></AppShell>`.
+
+**Step 9 — Wire up routing in `App.tsx`**
+React Router v6 with all 8 routes pointing to stub pages.
+
+**Step 10 — Run and verify**
+```bash
+npm run dev
+```
+The app must start, show the sidebar with all 8 nav items, navigate between stub pages.
+
+---
+
+## Sprint Plan
+
+| Sprint | Name | Stack Layer | Assignment |
+|---|---|---|---|
+| **0** | Project Setup & Design System | Frontend only | — |
+| **1** | Backend Layer | Python: fixes + FastAPI routes | — |
+| **2** | Agent Core Upgrades | Python: agent.py + tools.py | Improves existing LLM |
+| **3** | React Pages — All 7 pages | Frontend: full page implementations | — |
+| **4** | Analytics Page | Python endpoint + React + LLM insights | **Second LLM feature** |
+
+**One sprint per session. Commit after each. Verify app runs before starting next.**
+
+**Scope rule:** Do not modify files outside the current sprint's listed scope,
+even if you see an improvement. Flag it as a comment, do not implement it.
+
+---
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Frontend  (frontend/)                                      │
+│  React 18 + TypeScript + Vite                               │
+│  TailwindCSS + shadcn/ui                                    │
+│  Port 5173 (dev) / nginx (prod)                             │
+└─────────────────────┬───────────────────────────────────────┘
+                      │  REST API  (JSON)
+                      │  SSE stream (AI chat)
+┌─────────────────────▼───────────────────────────────────────┐
+│  Backend  (backend/)                                        │
+│  FastAPI + Uvicorn                                          │
+│  Port 8000                                                  │
+│                                                             │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ routers/     │  │ agent/       │  │ integrations/    │  │
+│  │ tasks.py     │  │ agent.py ✓   │  │ google_cal.py ✓  │  │
+│  │ goals.py     │  │ tools.py ✓   │  └──────────────────┘  │
+│  │ habits.py    │  └──────────────┘                        │
+│  │ calendar.py  │  ┌──────────────┐  ┌──────────────────┐  │
+│  │ ai.py        │  │ db/          │  │ utils/           │  │
+│  │ analytics.py │  │ schema.py ✓  │  │ date_utils.py ✓  │  │
+│  │ preferences  │  │ crud.py ✓    │  └──────────────────┘  │
+│  └──────────────┘  └──────────────┘                        │
+└─────────────────────────────────────────────────────────────┘
+                      │  SQLAlchemy
+┌─────────────────────▼───────────────────────────────────────┐
+│  data/planner.db  (SQLite, git-ignored)                     │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**✓ = unchanged from v1 Streamlit prototype. Zero edits needed.**
+
+---
+
+## Tech Stack
+
+| Layer | Technology | Notes |
 |---|---|---|
-| **1** | `db/schema.py`, `db/crud.py` — all 6 tables, CRUD, soft deletes, optimistic locking | ✅ **COMPLETE** |
-| **2** | `app.py`, Streamlit skeleton, sidebar nav, page stubs, `utils/toast.py`, `utils/date_utils.py` | ✅ **COMPLETE** |
-| **3** | `pages/tasks.py` (full), `agent/tools.py` (task tools), `agent/__init__.py` | ✅ **COMPLETE** |
-| **4** | `pages/dashboard.py` — Today at a Glance, task/habit/goal/calendar widgets, quick actions | ✅ **COMPLETE** |
-| **5** | `pages/goals.py` (full) + goal agent tools in `agent/tools.py` | ✅ **COMPLETE** |
-| **6** | `pages/habits.py` (full) + habit agent tools in `agent/tools.py` | ✅ **COMPLETE** |
-| **7** | `pages/calendar.py` (full) + calendar agent tools in `agent/tools.py` | ✅ **COMPLETE** |
-| **8** | Aggregate tools: `get_today_overview`, `get_weekly_summary`, `suggest_schedule` | ✅ **COMPLETE** |
-| **9** | `pages/ai_chat.py` (full) + `agent/agent.py` — Claude client, system prompt, tool loop | ✅ **COMPLETE** |
-| **10** | `pages/settings.py` (full) + seed data + `assets/style.css` + global polish | ✅ **COMPLETE** |
-| **11** | `integrations/google_calendar.py` — OAuth, event fetch, sync; wire into all tools | ✅ **COMPLETE** |
+| Frontend framework | React 18 + TypeScript | Vite for bundling |
+| Styling | TailwindCSS + shadcn/ui | Full design system |
+| Routing | React Router v6 | Client-side |
+| Charts | Recharts | Analytics page |
+| Icons | Lucide React | Stroke icons only |
+| Backend | FastAPI + Uvicorn | Python 3.9 |
+| Database | SQLite via SQLAlchemy 2.x | Unchanged |
+| AI Agent | Anthropic `claude-sonnet-4-6` | Unchanged |
+| Google Calendar | google-api-python-client | Unchanged |
+
+---
+
+## Project Structure
+
+```
+productivity-planner/
+│
+├── backend/                          Python / FastAPI
+│   ├── main.py                       FastAPI app, CORS, startup (Sprint 1)
+│   ├── routers/                      One router per domain (Sprint 1)
+│   │   ├── tasks.py
+│   │   ├── goals.py
+│   │   ├── habits.py
+│   │   ├── calendar.py
+│   │   ├── ai.py                     SSE streaming endpoint
+│   │   ├── analytics.py
+│   │   └── preferences.py
+│   ├── db/
+│   │   ├── __init__.py
+│   │   ├── schema.py                 UNCHANGED from v1
+│   │   └── crud.py                   UNCHANGED from v1 (Sprint 1 adds functions)
+│   ├── agent/
+│   │   ├── __init__.py
+│   │   ├── tools.py                  UNCHANGED (Sprint 2 adds tools)
+│   │   └── agent.py                  UNCHANGED (Sprint 2 rewrites)
+│   ├── integrations/
+│   │   └── google_calendar.py        UNCHANGED
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── date_utils.py             UNCHANGED
+│   ├── .env                          ANTHROPIC_API_KEY (git-ignored)
+│   └── requirements.txt              fastapi, uvicorn + existing deps minus streamlit
+│
+└── frontend/                         React / TypeScript / Vite
+    ├── index.html
+    ├── vite.config.ts
+    ├── tailwind.config.ts
+    ├── postcss.config.js
+    ├── tsconfig.json
+    ├── package.json
+    └── src/
+        ├── main.tsx
+        ├── App.tsx
+        ├── styles/
+        │   └── globals.css
+        ├── lib/
+        │   ├── theme.ts
+        │   └── api.ts
+        ├── components/
+        │   ├── ui/                   shadcn/ui components
+        │   └── layout/
+        │       ├── Sidebar.tsx
+        │       ├── TopBar.tsx
+        │       └── AppShell.tsx
+        ├── pages/
+        │   ├── Dashboard.tsx
+        │   ├── Tasks.tsx
+        │   ├── Goals.tsx
+        │   ├── Calendar.tsx
+        │   ├── Habits.tsx
+        │   ├── AIAssistant.tsx
+        │   ├── Analytics.tsx
+        │   └── Settings.tsx
+        └── types/
+            └── index.ts
+```
 
 ---
 
 ## How to Run
 
 ```bash
-python3 -m streamlit run app.py   # NOTE: streamlit not on $PATH — always use python3 -m
-python3 test_db.py                # Phase 1 DB smoke tests (7 tests, all passing)
+# Backend (from productivity-planner/backend/)
+pip install -r requirements.txt
+uvicorn main:app --reload --port 8000
+
+# Frontend (from productivity-planner/frontend/)
+npm run dev
+# Opens at http://localhost:5173
+# Vite proxies /api/* → http://localhost:8000
 ```
 
-**Secrets:** `.env` in project root contains `ANTHROPIC_API_KEY`. `data/` is git-ignored (holds `planner.db` and `google_token.json`).
-
----
-
-## Critical Rules — Read Before Writing Any Code
-
-- **Python 3.9 — never `X | None`:** Use `Optional[X]` from `typing` everywhere. No `X | Y` union syntax. No `from __future__ import annotations` workaround — it masks the problem.
-- **`st.cache_data.clear()` after every write:** Keeps the sidebar overdue badge fresh. Required in every page that writes to the DB, not just tasks.
-- **Optimistic locking:** UI pages MUST pass `current_updated_at=obj.updated_at` to `update_task()` / `update_goal()`. Agent tool executors never pass it.
-- **`st.date_input` returns `()` not `None`:** Guard every date input: `val if isinstance(val, date) else None`.
-- **`is_read_only` in the UI:** Never render edit/delete controls when `event.is_read_only == True`. The CRUD layer also raises `PermissionError` — catch it explicitly alongside general exceptions.
-- **All DB access via `crud.py`:** No direct ORM queries outside `db/crud.py` — in pages or agent tools.
-- **Expander open-state after writes:** Set `st.session_state[f"expanded_{id}"] = True` before `st.rerun()` to keep the expander open with fresh data.
-- **`app.py` bootstrap order:** `load_dotenv()` → `db_init()` → `st.set_page_config()` (must be the first Streamlit call) → sidebar content → `pg.run()`. Order is mandatory.
-- **Habits use `is_active`, not `deleted_at`:** Archival = `archive_habit()` sets `is_active=False`. Tasks, Goals, and CalendarEvents use soft-delete (`deleted_at`). Do not mix these up.
-- **`execute_tool()` never raises:** Always returns `{"error": "..."}` on failure. The agent loop passes this to Claude as a tool result without crashing.
-
----
-
-## Project Overview
-
-A local-first, all-in-one personal productivity planner built with Streamlit + SQLite + Claude AI.
-Single-user, no cloud sync, no auth. All data lives in `./data/planner.db`.
-The AI agent has full read/write access to all planning data via the same CRUD layer as the UI.
-
-**Spec file:** `productivity_planner_spec_v2.1.docx` in the project root.
-Read it for authoritative UI/feature requirements. This CLAUDE.md captures implementation decisions on top of it.
-
----
-
-## Tech Stack
-
-| Layer | Technology | Version |
-|---|---|---|
-| Python | CPython | **3.9.6** |
-| UI | Streamlit | 1.50.0 |
-| Database | SQLite via SQLAlchemy ORM | SQLAlchemy 2.x |
-| AI Agent | Anthropic Claude API | `claude-sonnet-4-6` |
-| Agent framework | Native tool use (function calling) | — |
-| Date/time | Python `datetime` + `arrow` | — |
-| Auth/secrets | `python-dotenv` | — |
-| Google Calendar | `google-api-python-client`, `google-auth-oauthlib`, `google-auth-httplib2` | Phase 11 only |
-
----
-
-## File Structure
-
-```
-productivity-planner/
-│
-├── app.py                        Entry point — bootstrap, routing, sidebar nav
-│
-├── db/
-│   ├── __init__.py
-│   ├── schema.py                 SQLAlchemy ORM models + db_init() + get_session()
-│   └── crud.py                   All CRUD helpers (shared by UI pages and agent tools)
-│
-├── pages/                        Streamlit page modules (run by st.navigation())
-│   ├── dashboard.py
-│   ├── tasks.py
-│   ├── goals.py
-│   ├── calendar.py
-│   ├── habits.py
-│   ├── ai_chat.py
-│   └── settings.py
-│
-├── agent/
-│   ├── __init__.py
-│   ├── tools.py                  Tool definitions + executors
-│   └── agent.py                  (Phase 9)
-│
-├── integrations/
-│   └── google_calendar.py        (Phase 11)
-│
-├── utils/
-│   ├── __init__.py
-│   ├── toast.py                  show_toast() wrapper around st.toast()
-│   └── date_utils.py             today(), week_days(), friendly_date(), is_overdue(), start_of_week()
-│
-├── assets/
-│   └── style.css                 (Phase 10)
-│
-├── data/                         Git-ignored runtime directory
-│   ├── planner.db                SQLite database (auto-created by db_init())
-│   └── google_token.json         OAuth token (Phase 11)
-│
-├── test_db.py                    Phase 1 smoke tests (7 tests)
-├── requirements.txt
-├── .env                          Git-ignored — contains ANTHROPIC_API_KEY
-└── CLAUDE.md                     This file
+Configure Vite proxy in `vite.config.ts`:
+```typescript
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/api': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+    },
+  },
+})
 ```
 
 ---
 
-## Database Schema (`./data/planner.db`)
+## Design System — Sprint 0 Implementation
 
-All models are in `db/schema.py`. SQLAlchemy classic declarative style (`declarative_base()`).
-`db_init(path)` creates all tables; safe to call multiple times (`checkfirst=True`).
-Session factory: `expire_on_commit=False` so ORM objects remain accessible after session closes.
+### Colour Decisions (final, do not change)
 
-### Table: `tasks`
+```
+Primary:       #4F46E5   (indigo-600)
+Primary hover: #4338CA   (indigo-700)
+Primary tint:  #EEF2FF   (indigo-50)
 
-| Column | SQLAlchemy Type | Notes |
-|---|---|---|
-| `id` | Integer PK | autoincrement |
-| `title` | Text | NOT NULL |
-| `description` | Text | optional notes |
-| `status` | Text | `todo` \| `in_progress` \| `done` \| `cancelled` — default `todo` |
-| `priority` | Text | `low` \| `medium` \| `high` \| `urgent` — default `medium` |
-| `due_date` | Date | optional |
-| `project_id` | Integer FK → `goals.id` | nullable |
-| `scheduled_at` | DateTime | set when agent time-blocks the task |
-| `estimated_minutes` | Integer | duration estimate for time-blocking |
-| `energy_level` | Text | `low` \| `medium` \| `high` — for smart scheduling |
-| `tags` | Text | comma-separated string |
-| `created_at` | DateTime | auto-set on insert |
-| `updated_at` | DateTime | auto-updated; used for **optimistic locking** |
-| `deleted_at` | DateTime | NULL = active; set = soft-deleted |
+Neutral scale: Tailwind Slate (slate-50 through slate-900)
+  Main backgrounds: #FFFFFF (white)
+  Sidebar/surface:  #F8FAFC (slate-50)
+  Standard border:  #E2E8F0 (slate-200)
+  Strong border:    #CBD5E1 (slate-300)
+  Muted text:       #94A3B8 (slate-400)
+  Secondary text:   #475569 (slate-600)
+  Body text:        #334155 (slate-700)
+  Headings:         #0F172A (slate-900)
 
-Relationships: `project` → `Goal`, `calendar_events` → `[CalendarEvent]`
+Success: #059669 / light #D1FAE5   (emerald)
+Warning: #D97706 / light #FEF3C7   (amber)
+Danger:  #DC2626 / light #FEE2E2   (red)
 
-### Table: `goals`
-
-| Column | SQLAlchemy Type | Notes |
-|---|---|---|
-| `id` | Integer PK | autoincrement |
-| `title` | Text | NOT NULL |
-| `description` | Text | |
-| `status` | Text | `active` \| `paused` \| `completed` \| `archived` — default `active` |
-| `target_date` | Date | optional deadline |
-| `progress_pct` | Integer | 0–100 |
-| `progress_mode` | Text | `manual` \| `auto` — `auto` recalculates from linked task completion |
-| `parent_id` | Integer FK → `goals.id` | self-referential; one level of nesting for prototype |
-| `created_at` | DateTime | |
-| `updated_at` | DateTime | auto-updated; used for **optimistic locking** |
-| `deleted_at` | DateTime | soft delete |
-
-Relationships: `tasks` → `[Task]`, `subgoals` → `[Goal]`, `parent` → `Goal`
-
-Self-referential relationship uses string-based foreign_keys to avoid class-not-yet-defined issues:
-```python
-subgoals = relationship("Goal", back_populates="parent", foreign_keys="Goal.parent_id")
-parent   = relationship("Goal", back_populates="subgoals", remote_side="Goal.id", foreign_keys="Goal.parent_id")
+Calendar event colours (MUST NOT CHANGE — established in v1):
+  meeting:    #3B82F6   (blue-500)
+  personal:   #8B5CF6   (violet-500)
+  reminder:   #F59E0B   (amber-500)
+  task_block: #10B981   (emerald-500)
+  google:     #94A3B8   (slate-400)
 ```
 
-### Table: `calendar_events`
+### `tailwind.config.ts` — exact file content
 
-| Column | SQLAlchemy Type | Notes |
-|---|---|---|
-| `id` | Integer PK | |
-| `title` | Text | NOT NULL |
-| `description` | Text | |
-| `event_type` | Text | `task_block` \| `meeting` \| `personal` \| `reminder` \| `google_import` |
-| `start_datetime` | DateTime | NOT NULL |
-| `end_datetime` | DateTime | NOT NULL |
-| `location` | Text | Zoom link, address, etc. |
-| `task_id` | Integer FK → `tasks.id` | nullable — links time block to a task |
-| `is_recurring` | Boolean | default False |
-| `recurrence_rule` | Text | simple RRULE string |
-| `source` | Text | `local` \| `google` — default `local` |
-| `google_event_id` | Text | Google Calendar event ID; NULL for local. Deduplication key on re-sync. |
-| `google_calendar_id` | Text | which Google calendar this came from |
-| `is_read_only` | Boolean | TRUE for all Google-imported events; **enforced at CRUD layer** |
-| `sync_stale` | Boolean | TRUE if event was in a previous sync but absent from latest fetch |
-| `created_at` | DateTime | |
-| `deleted_at` | DateTime | soft delete — only applies to `source='local'` events |
+```typescript
+import type { Config } from 'tailwindcss'
 
-**Critical:** `update_event` and `delete_event` in `crud.py` raise `PermissionError` if
-`is_read_only=True`. This is enforced at the data layer, not just the UI.
-The UI does not render edit/delete controls for read-only events.
+const config: Config = {
+  darkMode: ['class'],
+  content: ['./index.html', './src/**/*.{ts,tsx}'],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          DEFAULT: '#4F46E5',
+          50:  '#EEF2FF',
+          100: '#E0E7FF',
+          200: '#C7D2FE',
+          300: '#A5B4FC',
+          400: '#818CF8',
+          500: '#6366F1',
+          600: '#4F46E5',
+          700: '#4338CA',
+          800: '#3730A3',
+          900: '#312E81',
+        },
+        success: { light: '#D1FAE5', DEFAULT: '#059669', dark: '#047857' },
+        warning: { light: '#FEF3C7', DEFAULT: '#D97706', dark: '#B45309' },
+        danger:  { light: '#FEE2E2', DEFAULT: '#DC2626', dark: '#B91C1C' },
+        event: {
+          meeting:   '#3B82F6',
+          personal:  '#8B5CF6',
+          reminder:  '#F59E0B',
+          taskblock: '#10B981',
+          google:    '#94A3B8',
+        },
+      },
+      fontFamily: {
+        sans: ['Inter', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'sans-serif'],
+        mono: ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
+      },
+      fontSize: {
+        'xs':   ['11px', { lineHeight: '16px' }],
+        'sm':   ['13px', { lineHeight: '20px' }],
+        'base': ['14px', { lineHeight: '22px' }],
+        'md':   ['15px', { lineHeight: '24px' }],
+        'lg':   ['17px', { lineHeight: '26px' }],
+        'xl':   ['20px', { lineHeight: '28px' }],
+        '2xl':  ['24px', { lineHeight: '32px' }],
+        '3xl':  ['30px', { lineHeight: '36px' }],
+      },
+      borderRadius: {
+        'xs':    '4px',
+        'sm':    '6px',
+        DEFAULT: '8px',
+        'md':    '8px',
+        'lg':    '10px',
+        'xl':    '12px',
+        '2xl':   '16px',
+      },
+      boxShadow: {
+        'xs':      '0 1px 2px rgba(0,0,0,0.05)',
+        'sm':      '0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04)',
+        DEFAULT:   '0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04)',
+        'md':      '0 4px 6px -1px rgba(0,0,0,0.07), 0 2px 4px -1px rgba(0,0,0,0.04)',
+        'lg':      '0 10px 15px -3px rgba(0,0,0,0.08), 0 4px 6px -2px rgba(0,0,0,0.04)',
+        'xl':      '0 20px 25px -5px rgba(0,0,0,0.10), 0 10px 10px -5px rgba(0,0,0,0.04)',
+        'primary': '0 0 0 3px rgba(79,70,229,0.15)',
+        'danger':  '0 0 0 3px rgba(220,38,38,0.15)',
+      },
+    },
+  },
+  plugins: [require('tailwindcss-animate')],
+}
 
-### Table: `habits`
+export default config
+```
 
-| Column | SQLAlchemy Type | Notes |
-|---|---|---|
-| `id` | Integer PK | |
-| `title` | Text | NOT NULL |
-| `description` | Text | |
-| `frequency` | Text | `daily` \| `weekdays` \| `weekly` \| `custom` |
-| `target_days` | Text | JSON array of day indices (0=Mon) for `custom` frequency |
-| `time_of_day` | Text | `morning` \| `afternoon` \| `evening` \| `anytime` — default `anytime` |
-| `streak_current` | Integer | auto-calculated by `_recalculate_streaks()` |
-| `streak_best` | Integer | auto-calculated; never decremented |
-| `is_active` | Boolean | default True; set False to archive (no `deleted_at`) |
-| `created_at` | DateTime | |
+### `src/styles/globals.css` — exact file content
 
-**No `deleted_at`**: habits use `is_active=False` for archival (history preserved).
-`get_habits()` sorts by `time_of_day` order: morning → afternoon → evening → anytime.
+```css
+@import '@fontsource/inter/400.css';
+@import '@fontsource/inter/500.css';
+@import '@fontsource/inter/600.css';
+@import '@fontsource/inter/700.css';
+@import '@fontsource/jetbrains-mono/400.css';
+@import '@fontsource/jetbrains-mono/500.css';
 
-### Table: `habit_completions`
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-| Column | SQLAlchemy Type | Notes |
-|---|---|---|
-| `id` | Integer PK | |
-| `habit_id` | Integer FK → `habits.id` | NOT NULL |
-| `completed_date` | Date | NOT NULL |
-| `completed_at` | DateTime | exact completion timestamp |
-| `note` | Text | optional note |
+/* shadcn/ui CSS variables */
+:root {
+  --background:           0 0% 100%;
+  --foreground:           222 47% 11%;
+  --card:                 0 0% 100%;
+  --card-foreground:      222 47% 11%;
+  --popover:              0 0% 100%;
+  --popover-foreground:   222 47% 11%;
+  --primary:              243 75% 59%;
+  --primary-foreground:   0 0% 100%;
+  --secondary:            214 32% 91%;
+  --secondary-foreground: 215 25% 27%;
+  --muted:                214 32% 91%;
+  --muted-foreground:     215 16% 47%;
+  --accent:               226 100% 97%;
+  --accent-foreground:    243 75% 59%;
+  --destructive:          0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border:               214 32% 91%;
+  --input:                214 32% 91%;
+  --ring:                 243 75% 59%;
+  --radius:               0.5rem;
+}
 
-`mark_habit_complete()` is **idempotent** — returns existing row if already logged for that date.
-`unmark_habit_complete()` returns `True` if deleted, `False` if no row existed.
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
 
-### Table: `ai_conversation_history`
+  html {
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
 
-| Column | SQLAlchemy Type | Notes |
-|---|---|---|
-| `id` | Integer PK | |
-| `session_id` | Text | groups messages in a conversation |
-| `role` | Text | `user` \| `assistant` \| `tool` — NOT NULL |
-| `content` | Text | message text or tool call JSON |
-| `tool_name` | Text | set when `role='tool'` |
-| `token_count` | Integer | tracked for context window management |
-| `created_at` | DateTime | |
+  body {
+    background-color: #FFFFFF;
+    color: #334155;
+    font-family: theme('fontFamily.sans');
+    line-height: 1.571;
+  }
+
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb {
+    background: #E2E8F0;
+    border-radius: 9999px;
+  }
+  ::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
+
+  *:focus { outline: none; }
+  *:focus-visible {
+    outline: 2px solid #4F46E5;
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px;
+       color: #0F172A; line-height: 1.25; }
+  h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px;
+       color: #0F172A; line-height: 1.35; }
+  h3 { font-size: 15px; font-weight: 600; color: #1E293B; line-height: 1.4; }
+  h4 { font-size: 14px; font-weight: 600; color: #1E293B; }
+}
+
+@layer components {
+  /* Cards */
+  .card         { @apply bg-white border border-slate-200 rounded-lg shadow-xs; }
+  .card-hover   { @apply card transition-all duration-150 hover:border-slate-300 hover:shadow-sm cursor-pointer; }
+  .card-subtle  { @apply bg-slate-50 border border-slate-200 rounded-lg; }
+  .card-elevated{ @apply bg-white border border-slate-200 rounded-xl shadow-lg; }
+
+  /* Metric tile */
+  .metric-tile  { @apply card p-4 flex flex-col gap-1; }
+  .metric-value { @apply text-3xl font-bold text-slate-900 tracking-tight; }
+  .metric-label { @apply text-xs font-medium text-slate-400 uppercase tracking-widest; }
+
+  /* Section headers (task/goal groupings) */
+  .section-header {
+    @apply text-xs font-semibold text-slate-400 uppercase tracking-widest
+           pt-3 pb-1.5 border-t border-slate-100 mt-1;
+  }
+  .section-header:first-of-type { @apply border-t-0 pt-0; }
+
+  /* Badges */
+  .badge { @apply inline-flex items-center px-1.5 py-0.5 rounded-xs text-xs font-medium leading-none; }
+  .badge-urgent      { @apply badge bg-danger-light  text-danger; }
+  .badge-high        { @apply badge bg-warning-light text-warning; }
+  .badge-medium      { @apply badge bg-slate-100 text-slate-600; }
+  .badge-low         { @apply badge text-slate-400; }
+  .badge-todo        { @apply badge bg-slate-100 text-slate-600; }
+  .badge-in_progress { @apply badge bg-primary-50 text-primary-700; }
+  .badge-done        { @apply badge bg-success-light text-success; }
+  .badge-cancelled   { @apply badge text-slate-400; }
+  .badge-active      { @apply badge bg-success-light text-success; }
+  .badge-paused      { @apply badge bg-warning-light text-warning; }
+  .badge-archived    { @apply badge text-slate-400; }
+  .badge-completed   { @apply badge bg-success-light text-success; }
+
+  /* Tags */
+  .tag {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full
+           text-xs font-medium font-mono
+           bg-primary-50 text-primary-700 border border-primary-200;
+  }
+
+  /* AI chat messages */
+  .msg-user {
+    @apply self-end max-w-[78%] bg-primary-50 border border-primary-200
+           rounded-xl rounded-br-sm px-3.5 py-2.5 text-base text-slate-800;
+  }
+  .msg-assistant {
+    @apply self-start max-w-[85%] bg-white border border-slate-200 shadow-xs
+           rounded-xl rounded-tl-sm px-3.5 py-2.5 text-base text-slate-800;
+  }
+  .msg-tool {
+    @apply self-start max-w-[85%] bg-slate-50 border border-slate-200 rounded-md
+           px-2.5 py-1.5 text-xs text-slate-500 cursor-pointer
+           hover:border-slate-300 transition-colors duration-100;
+  }
+
+  /* Habit grid cells */
+  .habit-cell-done          { @apply bg-success text-white; }
+  .habit-cell-missed        { @apply bg-slate-100 text-slate-300; }
+  .habit-cell-today-pending { @apply bg-white border-2 border-primary text-primary font-medium; }
+  .habit-cell-today-done    { @apply bg-success text-white ring-2 ring-success ring-offset-1; }
+  .habit-cell-empty         { @apply bg-transparent; }
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .streaming-cursor {
+    @apply inline-block w-0.5 h-3.5 bg-primary rounded-sm align-middle ml-0.5 animate-pulse;
+  }
+}
+```
+
+### `src/lib/theme.ts` — exact file content
+
+```typescript
+export const colors = {
+  primary: {
+    DEFAULT: '#4F46E5', 50: '#EEF2FF', 100: '#E0E7FF', 200: '#C7D2FE',
+    300: '#A5B4FC', 400: '#818CF8', 500: '#6366F1', 600: '#4F46E5',
+    700: '#4338CA', 800: '#3730A3', 900: '#312E81',
+  },
+  slate: {
+    50: '#F8FAFC', 100: '#F1F5F9', 200: '#E2E8F0', 300: '#CBD5E1',
+    400: '#94A3B8', 500: '#64748B', 600: '#475569', 700: '#334155',
+    800: '#1E293B', 900: '#0F172A',
+  },
+  success: { light: '#D1FAE5', DEFAULT: '#059669', dark: '#047857' },
+  warning: { light: '#FEF3C7', DEFAULT: '#D97706', dark: '#B45309' },
+  danger:  { light: '#FEE2E2', DEFAULT: '#DC2626', dark: '#B91C1C' },
+  event: {
+    meeting:   '#3B82F6',
+    personal:  '#8B5CF6',
+    reminder:  '#F59E0B',
+    task_block:'#10B981',
+    google:    '#94A3B8',
+  },
+} as const
+
+export const priority = {
+  urgent: { bg: '#FEE2E2', text: '#DC2626' },
+  high:   { bg: '#FEF3C7', text: '#D97706' },
+  medium: { bg: '#F1F5F9', text: '#475569' },
+  low:    { bg: 'transparent', text: '#94A3B8' },
+} as const
+
+export const taskStatus = {
+  todo:        { bg: '#F1F5F9', text: '#475569', label: 'To Do' },
+  in_progress: { bg: '#EEF2FF', text: '#4F46E5', label: 'In Progress' },
+  done:        { bg: '#D1FAE5', text: '#059669', label: 'Done' },
+  cancelled:   { bg: 'transparent', text: '#94A3B8', label: 'Cancelled' },
+} as const
+
+export const goalStatus = {
+  active:    { bg: '#D1FAE5', text: '#059669', label: 'Active' },
+  paused:    { bg: '#FEF3C7', text: '#D97706', label: 'Paused' },
+  completed: { bg: '#D1FAE5', text: '#059669', label: 'Completed' },
+  archived:  { bg: 'transparent', text: '#94A3B8', label: 'Archived' },
+} as const
+
+// For Recharts and chart libraries — use in order
+export const chartPalette = [
+  '#4F46E5', // primary
+  '#10B981', // emerald
+  '#3B82F6', // blue
+  '#F59E0B', // amber
+  '#8B5CF6', // violet
+  '#DC2626', // red
+] as const
+```
+
+### `src/types/index.ts` — TypeScript types
+
+```typescript
+// Mirrors the Python SQLAlchemy schema exactly
+
+export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled'
+export type Priority = 'low' | 'medium' | 'high' | 'urgent'
+export type EnergyLevel = 'low' | 'medium' | 'high'
+export type GoalStatus = 'active' | 'paused' | 'completed' | 'archived'
+export type ProgressMode = 'manual' | 'auto'
+export type HabitFrequency = 'daily' | 'weekdays' | 'weekly' | 'custom'
+export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'anytime'
+export type EventType = 'task_block' | 'meeting' | 'personal' | 'reminder' | 'google_import'
+export type EventSource = 'local' | 'google'
+export type MessageRole = 'user' | 'assistant' | 'tool'
+
+export interface Task {
+  id: number
+  title: string
+  description?: string
+  status: TaskStatus
+  priority: Priority
+  due_date?: string          // ISO date: YYYY-MM-DD
+  project_id?: number
+  scheduled_at?: string      // ISO datetime
+  estimated_minutes?: number
+  energy_level?: EnergyLevel
+  tags?: string              // comma-separated
+  created_at: string
+  updated_at: string
+  deleted_at?: string
+}
+
+export interface Goal {
+  id: number
+  title: string
+  description?: string
+  status: GoalStatus
+  target_date?: string
+  progress_pct: number
+  progress_mode: ProgressMode
+  parent_id?: number
+  created_at: string
+  updated_at: string
+  deleted_at?: string
+  tasks?: Task[]
+  subgoals?: Goal[]
+}
+
+export interface CalendarEvent {
+  id: number
+  title: string
+  description?: string
+  event_type: EventType
+  start_datetime: string
+  end_datetime: string
+  location?: string
+  task_id?: number
+  is_recurring: boolean
+  recurrence_rule?: string
+  source: EventSource
+  google_event_id?: string
+  google_calendar_id?: string
+  is_read_only: boolean
+  sync_stale: boolean
+  created_at: string
+  deleted_at?: string
+}
+
+export interface Habit {
+  id: number
+  title: string
+  description?: string
+  frequency: HabitFrequency
+  target_days?: string       // JSON array of day indices 0=Mon
+  time_of_day: TimeOfDay
+  streak_current: number
+  streak_best: number
+  is_active: boolean
+  created_at: string
+}
+
+export interface HabitCompletion {
+  id: number
+  habit_id: number
+  completed_date: string     // ISO date
+  completed_at: string
+  note?: string
+}
+
+export interface UserPreference {
+  key: string
+  value: string
+  updated_at: string
+}
+
+export interface AIMessage {
+  role: MessageRole
+  content: string
+}
+
+// API request/response shapes
+export interface CreateTaskRequest {
+  title: string
+  description?: string
+  status?: TaskStatus
+  priority?: Priority
+  due_date?: string
+  project_id?: number
+  estimated_minutes?: number
+  energy_level?: EnergyLevel
+  tags?: string
+}
+
+export interface UpdateTaskRequest extends Partial<CreateTaskRequest> {
+  scheduled_at?: string
+}
+
+export interface CreateGoalRequest {
+  title: string
+  description?: string
+  status?: GoalStatus
+  target_date?: string
+  progress_pct?: number
+  progress_mode?: ProgressMode
+  parent_id?: number
+}
+
+export interface CreateEventRequest {
+  title: string
+  start_datetime: string
+  end_datetime: string
+  description?: string
+  event_type?: EventType
+  location?: string
+  task_id?: number
+}
+
+export interface CreateHabitRequest {
+  title: string
+  description?: string
+  frequency?: HabitFrequency
+  target_days?: string
+  time_of_day?: TimeOfDay
+}
+
+export interface ChatRequest {
+  messages: AIMessage[]
+  session_id: string
+}
+```
+
+### AppShell, Sidebar, TopBar implementation
+
+**`src/components/layout/Sidebar.tsx`**
+
+```tsx
+import { NavLink } from 'react-router-dom'
+import {
+  LayoutDashboard, CheckSquare, Target, CalendarDays,
+  Repeat2, Bot, BarChart2, Settings2,
+} from 'lucide-react'
+
+const navItems = [
+  { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/tasks',     icon: CheckSquare,     label: 'Tasks' },
+  { to: '/goals',     icon: Target,          label: 'Goals' },
+  { to: '/calendar',  icon: CalendarDays,    label: 'Calendar' },
+  { to: '/habits',    icon: Repeat2,         label: 'Habits' },
+  { to: '/ai',        icon: Bot,             label: 'AI Assistant' },
+  { to: '/analytics', icon: BarChart2,       label: 'Analytics' },
+  { to: '/settings',  icon: Settings2,       label: 'Settings' },
+]
+
+export function Sidebar() {
+  return (
+    <aside className="fixed top-0 left-0 h-screen w-[240px] bg-slate-50
+                      border-r border-slate-200 flex flex-col z-20">
+
+      {/* Brand */}
+      <div className="h-[52px] flex items-center px-4 border-b border-slate-200 shrink-0">
+        <div>
+          <div className="text-base font-bold text-slate-900 tracking-tight leading-none">
+            Planner
+          </div>
+          <div className="text-xs font-medium text-slate-400 uppercase tracking-widest
+                          leading-none mt-0.5">
+            Personal
+          </div>
+        </div>
+      </div>
+
+      {/* Nav */}
+      <nav className="flex-1 overflow-y-auto p-2">
+        <ul className="flex flex-col gap-0.5">
+          {navItems.map(({ to, icon: Icon, label }) => (
+            <li key={to}>
+              <NavLink
+                to={to}
+                end={to === '/'}
+                className={({ isActive }) =>
+                  `flex items-center gap-2 px-2.5 h-8 rounded-sm text-sm font-medium
+                   transition-colors duration-100 select-none
+                   ${isActive
+                     ? 'bg-primary-50 text-primary-600 font-semibold'
+                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                   }`
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <Icon
+                      size={16}
+                      strokeWidth={1.75}
+                      className={isActive ? 'text-primary-600' : 'text-slate-400'}
+                    />
+                    {label}
+                  </>
+                )}
+              </NavLink>
+            </li>
+          ))}
+        </ul>
+      </nav>
+
+      {/* Bottom */}
+      <div className="h-[48px] border-t border-slate-200 flex items-center px-4">
+        <span className="text-xs text-slate-400">v2.0</span>
+      </div>
+    </aside>
+  )
+}
+```
+
+**`src/components/layout/TopBar.tsx`**
+
+```tsx
+interface TopBarProps {
+  title: string
+  action?: React.ReactNode
+}
+
+export function TopBar({ title, action }: TopBarProps) {
+  return (
+    <header className="h-[56px] bg-white border-b border-slate-200
+                       flex items-center justify-between px-8
+                       sticky top-0 z-10">
+      <h1 className="text-xl font-semibold text-slate-900 tracking-tight">
+        {title}
+      </h1>
+      {action && <div>{action}</div>}
+    </header>
+  )
+}
+```
+
+**`src/components/layout/AppShell.tsx`**
+
+```tsx
+import { Sidebar } from './Sidebar'
+import { TopBar } from './TopBar'
+
+interface AppShellProps {
+  title: string
+  action?: React.ReactNode
+  children: React.ReactNode
+}
+
+export function AppShell({ title, action, children }: AppShellProps) {
+  return (
+    <div className="flex min-h-screen bg-white">
+      <Sidebar />
+      <div className="ml-[240px] flex-1 flex flex-col min-h-screen">
+        <TopBar title={title} action={action} />
+        <main className="flex-1 p-8 max-w-[1200px] w-full">
+          {children}
+        </main>
+      </div>
+    </div>
+  )
+}
+```
+
+**`src/App.tsx`**
+
+```tsx
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Dashboard }    from './pages/Dashboard'
+import { Tasks }        from './pages/Tasks'
+import { Goals }        from './pages/Goals'
+import { Calendar }     from './pages/Calendar'
+import { Habits }       from './pages/Habits'
+import { AIAssistant }  from './pages/AIAssistant'
+import { Analytics }    from './pages/Analytics'
+import { Settings }     from './pages/Settings'
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/"          element={<Dashboard />} />
+        <Route path="/tasks"     element={<Tasks />} />
+        <Route path="/goals"     element={<Goals />} />
+        <Route path="/calendar"  element={<Calendar />} />
+        <Route path="/habits"    element={<Habits />} />
+        <Route path="/ai"        element={<AIAssistant />} />
+        <Route path="/analytics" element={<Analytics />} />
+        <Route path="/settings"  element={<Settings />} />
+      </Routes>
+    </BrowserRouter>
+  )
+}
+```
+
+Each stub page (e.g., `Tasks.tsx`):
+```tsx
+import { AppShell } from '../components/layout/AppShell'
+
+export function Tasks() {
+  return (
+    <AppShell title="Tasks">
+      <p className="text-slate-400">Tasks page — coming in Sprint 3</p>
+    </AppShell>
+  )
+}
+```
+
+### `src/lib/api.ts` — typed API client (stub)
+
+```typescript
+// Typed API client — routes populated in Sprint 1 & 3
+// All paths are relative (/api/...) — Vite proxies to localhost:8000
+
+const BASE = '/api'
+
+async function get<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`)
+  if (!res.ok) throw new Error(`GET ${path} failed: ${res.status}`)
+  return res.json()
+}
+
+async function post<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`POST ${path} failed: ${res.status}`)
+  return res.json()
+}
+
+async function put<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(`PUT ${path} failed: ${res.status}`)
+  return res.json()
+}
+
+async function del(path: string): Promise<void> {
+  const res = await fetch(`${BASE}${path}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`DELETE ${path} failed: ${res.status}`)
+}
+
+export const api = { get, post, put, del }
+```
 
 ---
 
-## CRUD Layer (`db/crud.py`)
+## Sprint 1 Preview — FastAPI Backend
 
-**Rule:** All reads and writes by both the UI and the agent go through `crud.py`. No direct ORM
-queries outside this file. This guarantees a single consistent data layer.
+Sprint 1 creates `backend/main.py` and all routers. Full spec will be in CURRENT SPRINT
+when Sprint 0 is complete. Key points to know now:
 
-### Session pattern
+The backend keeps every Python file from v1 **unchanged**. FastAPI wraps the existing
+`crud.py` functions in HTTP routes. No business logic lives in the routers.
 
-```python
-# get_session() is a contextmanager in db/schema.py
-with get_session() as session:
-    # ... queries ...
-    session.flush()      # write to DB within transaction
-    return obj           # obj is still accessible (expire_on_commit=False)
-# session.commit() on exit, session.rollback() on exception
+New `backend/requirements.txt` (replaces old one):
+```
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+sqlalchemy>=2.0.0
+anthropic>=0.25.0
+arrow>=1.3.0
+python-dotenv>=1.0.0
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.1.0
+google-auth-httplib2>=0.1.1
 ```
 
-### Available functions
-
-**Tasks:** `get_tasks()`, `create_task()`, `update_task()`, `delete_task()`
-**Goals:** `get_goals()`, `create_goal()`, `update_goal()`, `delete_goal()`
-**Calendar Events:** `get_events()`, `create_event()`, `update_event()`, `delete_event()`
-**Habits:** `get_habits()`, `create_habit()`, `update_habit()`, `archive_habit()`
-**Habit Completions:** `mark_habit_complete()`, `unmark_habit_complete()`, `get_habit_completions()`
-**AI History:** `add_message()`, `get_conversation()`, `get_sessions()`
-
-### Optimistic locking (Tasks + Goals only)
-
-```python
-# UI passes the updated_at it read from DB; if row changed since, raises ValueError
-crud.update_task(task_id, current_updated_at=task.updated_at, status="done")
-crud.update_goal(goal_id, current_updated_at=goal.updated_at, progress_pct=75)
-
-# Agent does NOT pass current_updated_at (no locking needed — agent is primary writer)
-crud.update_task(task_id, status="done")
-```
-
-### Auto progress (Goals)
-
-When `goal.progress_mode == "auto"`, `_recalculate_goal_progress(session, goal_id)` sets
-`progress_pct` = (done tasks / total tasks) × 100. Called automatically on:
-- `update_task()` when `status` is in the changed fields
-- `delete_task()` when the task has a `project_id`
-- `get_goals()` for every auto-mode goal on read
-
-### Streak calculation (Habits)
-
-`_recalculate_streaks(session, habit_id)` called automatically after `mark_habit_complete()`
-and `unmark_habit_complete()`. Current streak resets to 0 if most recent completion is more
-than 1 day ago. Best streak never decrements.
+Sprint 1 also fixes these bugs in Python (unchanged from previous plan):
+- N+1 habit completions query → `get_habit_completions_bulk()` in crud.py
+- Add `UserPreferences` table to schema.py + crud.py
+- Fix `_load_session` → now done in the FastAPI AI router, not the frontend
+- Fix habit streak logic for non-daily habits
+- Harden NL quick-add parser (now a FastAPI endpoint, not Streamlit)
+- Fix duplicate calendar edit form code
 
 ---
 
-## Routing & Navigation (`app.py`)
+## Sprint 2 Preview — Agent Upgrades
 
-Uses `st.navigation()` + `st.Page()` (Streamlit 1.37+, available in 1.50.0).
-This **disables** Streamlit's automatic pages/ directory discovery — the nav is fully controlled.
-
-```python
-pg = st.navigation([
-    st.Page("pages/dashboard.py",  title="Dashboard",          icon="🏠", default=True),
-    st.Page("pages/tasks.py",      title=tasks_label,           icon="✅"),   # dynamic label
-    st.Page("pages/goals.py",      title="Goals & Projects",    icon="🎯"),
-    st.Page("pages/calendar.py",   title="Calendar & Schedule", icon="📅"),
-    st.Page("pages/habits.py",     title="Habits & Routines",   icon="🔄"),
-    st.Page("pages/ai_chat.py",    title="AI Assistant",        icon="🤖"),
-    st.Page("pages/settings.py",   title="Settings",            icon="⚙️"),
-])
-pg.run()
-```
-
-**Overdue badge:** `_overdue_count()` is `@st.cache_data(ttl=60)` cached. The Tasks nav label
-becomes `"Tasks & To-dos  •  N overdue"` when N > 0.
-After any write that could change the overdue count, call `st.cache_data.clear()`.
-
-**Bootstrap order in app.py (order matters):**
-1. `load_dotenv()` — non-Streamlit, safe before set_page_config
-2. `db_init()` — non-Streamlit, safe before set_page_config
-3. `st.set_page_config(...)` — **must be the FIRST Streamlit call**
-4. `@st.cache_data` functions — decorating is fine here
-5. `st.sidebar` content added **before** `pg.run()` appears **above** the nav widget
-6. `pg.run()` — executes the current page script
+Touches only `backend/agent/agent.py` and `backend/agent/tools.py`:
+- Dynamic system prompt with live context (depends on Sprint 1 N+1 fix)
+- `apply_schedule` bulk tool
+- `set_user_preference` / `get_user_preferences` tools
+- Streaming via `StreamingResponse` in `backend/routers/ai.py`
+- Context window truncation
+- Raise `_MAX_ITERATIONS` to 20
 
 ---
 
-## Agent Tools (`agent/tools.py`)
+## Sprint 3 Preview — React Pages
 
-### Architecture
-
-Each tool is a dict following the Anthropic tool-use JSON Schema format.
-Each executor function calls the corresponding `crud.py` function directly.
-`execute_tool(name, args)` dispatches by name and catches all exceptions into `{"error": "..."}`.
-
-```python
-from agent.tools import ALL_TOOLS, execute_tool
-
-# Pass to Claude API:
-response = client.messages.create(..., tools=ALL_TOOLS, ...)
-
-# Execute a tool call from the response:
-result = execute_tool(tool_name, tool_input_dict)
-```
-
-### Tools currently in ALL_TOOLS (Phases 3–7)
-
-**Task tools (Phase 3):**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `get_tasks` | none | `project_id`, `status`, `priority`, `due_date_from`, `due_date_to`, `tag`, `include_deleted` |
-| `create_task` | `title` | `description`, `status`, `priority`, `due_date`, `project_id`, `estimated_minutes`, `energy_level`, `tags` |
-| `update_task` | `task_id` | any Task field (only changed fields needed) |
-| `delete_task` | `task_id` | — |
-
-**Goal tools (Phase 5):**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `get_goals` | none | `status`, `parent_id`, `top_level_only`, `include_deleted` |
-| `create_goal` | `title` | `description`, `status`, `target_date`, `progress_pct`, `progress_mode`, `parent_id` |
-| `update_goal` | `goal_id` | any Goal field (only changed fields needed) |
-| `delete_goal` | `goal_id` | — |
-
-**Date handling in tools:** All dates go in/out as ISO-8601 strings (`YYYY-MM-DD`).
-Executors convert with `_parse_date()` / `_date_str()`.
-`update_task` / `update_goal` executors pop the ID key from args before passing `**args` to crud.
-`_goal_to_dict()` serialises goal objects same pattern as `_task_to_dict()`.
-
-**Habit tools (Phase 6):**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `get_habits` | none | `include_inactive`, `time_of_day` |
-| `mark_habit_complete` | `habit_id`, `completed_date` | `note` |
-| `unmark_habit_complete` | `habit_id`, `completed_date` | — |
-
-`mark_habit_complete` executor checks for an existing completion via `get_habit_completions`
-before calling the CRUD helper; returns `{"already_logged": true/false, "completion": {...}}`.
-`_habit_to_dict()` serialises all Habit fields including `streak_current`, `streak_best`, `is_active`.
-
-**Calendar tools (Phase 7):**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `get_events` | none | `start`, `end`, `source`, `include_stale`, `include_deleted` |
-| `create_event` | `title`, `start_datetime`, `end_datetime` | `description`, `event_type`, `location`, `task_id` |
-| `update_event` | `event_id` | any writable CalendarEvent field |
-| `delete_event` | `event_id` | — |
-
-`_event_to_dict()` serialises all CalendarEvent fields including `is_read_only`, `source`, `google_event_id`.
-All datetimes go in/out as ISO-8601 strings via `_parse_dt()` / `_dt_str()`.
-`update_event` and `delete_event` executors raise `PermissionError` for read-only events —
-caught by the top-level `execute_tool()` exception handler and returned as `{"error": "..."}`.
-
-**Aggregate tools (Phase 8):**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `get_today_overview` | none | — |
-| `get_weekly_summary` | none | `week_offset` (int, default 0) |
-| `suggest_schedule` | none | `date`, `start_hour` (default 9), `end_hour` (default 18) |
-
-**Phase 11 tools:**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `sync_google_calendar` | none | `calendar_id` (default `"primary"`) |
-
-`ALL_TOOLS` now has **19 tools** total.
+Build all 7 page implementations in `frontend/src/pages/`.
+Each page fetches from the FastAPI backend via `src/lib/api.ts`.
+Full spec in CURRENT SPRINT when Sprint 2 is complete.
 
 ---
 
-## Pages — Implementation Status
+## Sprint 4 Preview — Analytics (Assignment Deliverable)
 
-### `pages/tasks.py` — COMPLETE (Phase 3)
-
-**Features implemented:**
-- NL quick-add bar (`st.form`, `clear_on_submit=True`) — parses `today`, `tomorrow`, weekday
-  names (next occurrence, never today), `urgent` / `(high|medium|low) priority`, `#tag` patterns
-- List view: `st.expander` per task, label shows priority icon + status icon + title + due date
-  (with ⚠️ if overdue) + duration + tags
-- Kanban view: 4 columns (To Do / In Progress / Done / Cancelled), toggled with
-  `st.segmented_control` (Streamlit 1.44+)
-- Edit form: `st.form` inside expander, all task fields editable. Two `st.form_submit_button`s
-  (Save, Delete) — each returns True only when that specific button clicked.
-- Optimistic lock passed on Save: `current_updated_at=task.updated_at`
-- Expander stays open after Save: `st.session_state[f"expanded_{task.id}"] = True` before
-  `st.rerun()`
-- Bulk actions: checkbox per task + "select all" header checkbox; "Mark Done" + "Set Priority"
-- Filters: `st.multiselect` for status/priority, `st.selectbox` for project, text for tag —
-  all stored in `st.session_state` via widget `key=`
-- Sort: due date / priority / created / duration — Python-side sort on fetched list
-- Metrics strip: total active, overdue, in progress, done
-- `st.cache_data.clear()` called after every write to refresh the overdue badge in the sidebar
-
-**Session state keys used by tasks page:**
-```
-task_filter_status      list[str]   multiselect values
-task_filter_priority    list[str]
-task_filter_project     str         goal title or "All"
-task_filter_tag         str
-task_view_ctrl          str         "📋 List" | "🗂 Kanban" (segmented_control key)
-task_sort_ctrl          str         sort label (selectbox key)
-bulk_{task_id}          bool        per-task checkbox
-expanded_{task_id}      bool        persists expander open state across reruns
-```
-
-**st.date_input quirk:** Returns a `date` object or an empty tuple `()` when no date is selected
-(not `None`). Always guard: `due_clean = new_due if isinstance(new_due, date) else None`
-
-### `pages/dashboard.py` — COMPLETE (Phase 4)
-
-**Layout:** single-column header (Overdue Alert + Today at a Glance), then two equal columns
-(`left_col`: Today's Tasks + Habit Check-in; `right_col`: Goals Progress + This Week), then
-AI Quick Chat stub at the bottom.
-
-**Widgets:**
-- **Overdue Alert** — `st.error()` banner, only shown when overdue count > 0; directs user to Tasks page
-- **Today at a Glance** — `st.container(border=True)` card with date, day name, auto-generated
-  plain-English summary (counts overdue / today / habits)
-- **Today's Tasks** — top 5 tasks due or scheduled today, sorted by priority; ✅ button calls
-  `crud.update_task(t.id, status="done")`, `show_toast()`, `st.cache_data.clear()`, `st.rerun()`
-- **Habit Check-in** — all active habits sorted by `time_of_day`; ✓ marks complete, ↩️ unmarks;
-  streak displayed as 🔥 N when > 1; strikethrough title when done
-- **Goals Progress** — up to 6 active goals with `st.progress(pct/100, text=f"{pct}%")`;
-  shows target date if set; note when more than 6 exist
-- **This Week's Calendar** — Mon–Fri `st.expander` per day (today expanded by default);
-  events sorted by start time; 🟣 for Google import events, 🔵 for local
-- **AI Quick Chat stub** — disabled `st.text_input` + `st.button`; directs to AI Assistant page
-
-**Data loading:** all DB calls happen once at the top of the page entry point, no caching on
-the dashboard itself (it reads fresh every render, which is correct for a live overview).
-
-**Session state keys:** none — dashboard is stateless (buttons trigger `st.rerun()` directly).
-
-### `pages/goals.py` — COMPLETE (Phase 5)
-
-**Features:**
-- **Goal cards** (`st.expander`) — header: status icon + title + target date + progress %;
-  body: `st.progress(pct/100)`, mode caption, quick mode toggle button, 3-tab layout
-- **Progress mode toggle** — button outside edit form calls `crud.update_goal(id, progress_mode=X)`
-  directly; expander stays open via `st.session_state[f"goal_expanded_{goal.id}"] = True`
-- **Three-tab card layout** — `✏️ Edit` / `📋 Linked Tasks` / `🎯 Sub-goals`
-- **Edit form** (`st.form`) — title, status (4 options), target date, progress mode, parent goal
-  selector, description, manual progress slider; Save uses optimistic locking
-  (`current_updated_at=goal.updated_at`); Delete soft-deletes
-- **Manual progress slider** — always rendered; save handler applies `progress_pct` only when
-  mode is "manual"; help text clarifies it is ignored for auto mode
-- **Linked tasks tab** — `crud.get_tasks(project_id=goal.id)`; shows priority/status icons,
-  title, due date, duration; "X / N tasks completed" caption
-- **Sub-goals tab** — renders sub-goals as expandable mini-cards (Edit + Linked Tasks tabs only,
-  no further nesting); sub-goals shown regardless of active filter
-- **Sub-goal cards** — same progress bar + mode toggle + edit form as top-level, minus Sub-goals tab
-- **Create form** — `st.expander` with `clear_on_submit=True` form; handler inside form context
-  (same pattern as tasks quick-add); all fields including parent selector and initial progress %
-- **Filters** — status multiselect + "Show archived" checkbox; sub-goals follow their parent's
-  visibility (they're inside parent cards, not in the main filtered list)
-- **Metrics strip** — Total / Active / Completed / Paused
-
-**Session state keys used by goals page:**
-```
-goal_filter_status      list[str]   multiselect values
-goal_show_archived      bool        checkbox
-goal_expanded_{id}      bool        persists expander open state across reruns
-```
-
-**`st.tabs` inside `st.expander`:** supported in Streamlit 1.50.0 and used for the 3-tab layout.
-No key conflicts since form keys include the goal ID (`goal_edit_{goal.id}`).
-
-### `pages/habits.py` — COMPLETE (Phase 6)
-
-**Features implemented:**
-- **Metrics strip** — Active Habits / Completed Today (N / total) / Best Streak Ever
-- **Filter** — "Show archived habits" checkbox (`habit_show_archived` session key); passes
-  `include_inactive=True` to `crud.get_habits()` when checked
-- **Create form** — collapsible `st.expander`, `clear_on_submit=True`; fields: title,
-  description, frequency (daily/weekdays/weekly/custom), time_of_day; custom frequency
-  reveals a `st.multiselect` for day names → stored as JSON index array in `target_days`
-- **Habit cards** — `st.expander` per habit; header: `time_of_day` icon + title
-  (strikethrough when done + active) + streak (🔥 N) + frequency label + archived badge
-- **Mark / unmark row** — shown only for active habits; `✓ Done` (primary) / `↩️ Unmark`;
-  calls `crud.mark_habit_complete` / `crud.unmark_habit_complete` for `date.today()`;
-  streak caption shows current streak + best streak; expander stays open via session state
-- **Two-tab card layout** — `✏️ Edit` / `📅 History`
-- **Edit form** — title, description, frequency, time_of_day, target_days (custom only);
-  Save calls `crud.update_habit(habit_id, **fields)` (no optimistic locking);
-  Archive button calls `crud.archive_habit(habit_id)` (sets `is_active=False`)
-- **History tab** — 30-day completion grid; week rows × 7 columns aligned to Monday;
-  green cell = completed, light-grey = missed, transparent = outside the 30-day window;
-  summary caption shows "N / 30 days completed"
-
-**Session state keys used by habits page:**
-```
-habit_show_archived     bool        "Show archived habits" checkbox
-habit_expanded_{id}     bool        persists expander open state across reruns
-```
-
-**`target_days` encoding:** stored as a JSON array of day-index integers (0 = Mon … 6 = Sun).
-UI converts `DAY_NAMES` selections → indices on save; reverses on load for the multiselect default.
-
-### `pages/calendar.py` — COMPLETE (Phase 7)
-
-**Features implemented:**
-- **Metrics strip** — Events This Week / Today's Events / Upcoming (7 days); all three counts
-  respect the Google-events filter
-- **Week navigation** — `◀ Prev` / `Today` / `Next ▶` buttons adjust `cal_week_offset` (int in
-  session state); week label formatted as "February 23–Mar 1, 2026" spanning months correctly
-- **Filter** — "Show Google Calendar events" checkbox (`cal_show_google` session key); passes
-  `source="local"` to all `crud.get_events()` calls when unchecked
-- **Create event form** — collapsible `st.expander`, `clear_on_submit=True`; fields: title,
-  description, event_type, location, date, task link (active tasks only), start time, end time;
-  validates start < end; uses `datetime.combine(date_, time_obj)` before saving
-- **Week grid** — 7 equal columns (Mon–Sun); today's column highlighted in blue;
-  events are `st.expander` cards inside each column, sorted by `start_datetime`
-- **Event cards** — header: `{source_icon} {HH:MM} {title (≤18 chars)}`; body shows type icon,
-  duration, location caption; description shown if present
-- **Read-only events** — Google-imported events (`is_read_only=True`) show an info badge with no
-  edit/delete controls; enforced in UI before the form is rendered (CRUD layer also enforces)
-- **Edit form** — `st.form` inside expander per local event; all fields editable; Save + Delete
-  buttons; catches `PermissionError` separately from general exceptions; expander stays open
-  via `st.session_state[f"cal_expanded_{event.id}"] = True` before `st.rerun()`
-- `st.cache_data.clear()` called after every write to keep the sidebar overdue badge fresh
-
-**Session state keys used by calendar page:**
-```
-cal_week_offset          int    week offset from current (0 = this week)
-cal_show_google          bool   show/hide Google-imported events
-cal_expanded_{event.id}  bool   persists expander open state across reruns
-```
-
-**Date/time handling:**
-- `time.min` / `time.max` (from `datetime.time`) used to build full-day datetime bounds
-- `datetime.combine(date_, time_obj)` used for all start/end datetime construction
-- `event.start_datetime.time()` used as the default value for `st.time_input`
-- `isinstance(val, date)` guard on all `st.date_input` returns (can return empty tuple)
-
-### `agent/tools.py` — Aggregate tools COMPLETE (Phase 8)
-
-**`get_today_overview`:** fetches tasks due today + tasks with `scheduled_at.date() == today`
-(deduped by ID), active habits each annotated with `completed_today: bool`, and calendar events
-overlapping today. Two separate CRUD calls for tasks (due filter + all-tasks scheduled filter).
-
-**`get_weekly_summary`:** uses `start_of_week()` from `utils.date_utils` + `timedelta(weeks=N)`
-for the `week_offset` param. Per-habit summary includes `completions` count, `streak_current`,
-and `streak_best` for the week window.
-
-**`suggest_schedule`:** first-fit greedy scheduler. Builds busy intervals from same-day calendar
-events, merges overlaps, derives free slots. Tasks sorted by `energy_level` (high→morning,
-low→afternoon) then `priority`. Each task scanned against free slots from `cur_minute` forward;
-unfit tasks are skipped (not blocking subsequent smaller tasks). Returns `unscheduled_count`
-alongside the slots list. Does NOT write to DB — caller must apply via `update_task`/`create_event`.
-
-New import added to `agent/tools.py`: `timedelta` from `datetime` and `start_of_week` from
-`utils.date_utils`. `from datetime import time as time_` aliased locally in each executor that
-needs it to avoid shadowing the `time` module.
-
-**`AGGREGATE_TOOLS`** list added to registry; `ALL_TOOLS` now has 18 tools total.
-
-### `pages/ai_chat.py` — COMPLETE (Phase 9)
-
-**Features implemented:**
-- **Session state:** `chat_session_id` (UUID), `chat_turns` (list of `{role, text, tool_log}`),
-  `chat_api_messages` (Anthropic API format for context) — all in `st.session_state`
-- **Sidebar session history:** `crud.get_sessions()` lists past sessions (up to 15); each shown
-  as a clickable button with timestamp + first-message preview; current session highlighted as
-  `type="primary"`; "＋ New conversation" button at top creates a fresh UUID and clears state
-- **`_load_session(session_id)`:** reconstructs `chat_turns` and `chat_api_messages` from DB
-  records; pairs tool-call records (`role='assistant'`, `tool_name` set) with their tool-result
-  records (`role='tool'`) into `tool_log` lists on the assistant turn; flushes pending tool log
-  at end of records
-- **Chat display loop:** iterates `chat_turns`; renders each turn in `st.chat_message(role)`;
-  shows `st.markdown(text)` for message body; calls `_render_tool_log()` for tool entries
-- **`_render_tool_log(tool_log)`:** one `st.expander` per entry, label = `🔧 \`tool_name\``;
-  shows Input (`st.json(args)`) and Result (`st.json(result)` or `st.error` for error dicts)
-- **`st.chat_input`:** returns prompt when submitted; user message displayed immediately in
-  current render pass; added to `chat_turns` and `chat_api_messages`; agent called with
-  `st.spinner("Thinking…")`; response displayed inline; then stored in session state
-- **Error handling:** `try/except` around `run_agent` call; `st.error` shown inline in the
-  assistant message bubble on failure
-- **ANTHROPIC_API_KEY guard:** `st.warning` shown if env var is missing (checked via `os.environ`)
-- **`st.cache_data.clear()`** called after every successful agent response
-
-**Session state keys:**
-```
-chat_session_id      str         UUID for current conversation
-chat_turns           List[dict]  display turns: {role, text, tool_log}
-chat_api_messages    List[dict]  Anthropic API-format messages for context
-```
-
-### `agent/agent.py` — COMPLETE (Phase 9)
-
-**`_build_system_prompt()`:** embeds today's date (formatted as "Weekday, Month DD, YYYY");
-describes assistant role, 5 capability areas, and 18-tool count; instructs agent to always
-fetch fresh data and be concise.
-
-**`_block_to_dict(block)`:** converts Anthropic response content blocks to plain dicts;
-handles `text`, `tool_use`; falls back to `block.model_dump()` for unknown types.
-
-**`run_agent(messages, session_id)`:**
-- Persists the incoming user message (last item in `messages`) via `crud.add_message()`
-  before making any API call; strips list-format content to plain text for storage
-- **Tool-use loop** (max 10 iterations):
-  - `stop_reason == "end_turn"` → extracts text, persists to DB, returns; `break`
-  - `stop_reason == "tool_use"` → collects inline text; appends assistant message with
-    `[_block_to_dict(b) for b in response.content]` to `working_messages`; for each
-    `tool_use` block: calls `execute_tool()`, appends to `tool_calls_log`, persists
-    call record (`role='assistant'`, `tool_name=name`) and result record (`role='tool'`),
-    builds `tool_result` dict with `tool_use_id`; appends `{role:'user', content:tool_results}`
-    to `working_messages`; continues loop
-  - Other stop reason → appends stop reason to `response_text`, persists, `break`
-  - Loop `else` clause (exhausted iterations) → sets max-iterations message, persists
-- Returns `(response_text, tool_calls_log)`; `execute_tool()` never raises so agent never
-  crashes on tool failures (errors surface as `{"error": "..."}` in tool results)
-
-### `pages/settings.py` — COMPLETE (Phase 10)
-
-**Features implemented:**
-- **Database section** — two rows of `st.metric` showing active + total row counts for tasks,
-  goals, habits, calendar events, habit completions, and AI messages; powered by
-  `crud.get_db_stats()` (new function added in Phase 10)
-- **Export** — "Prepare Export" button serialises all DB records (including soft-deleted and
-  inactive rows) via `_build_export_json()` and stores the JSON string in session state;
-  `st.download_button` is then rendered to let the user save the file; "Cancel" clears session
-  state. `_obj_to_dict()` serialises ORM objects using `obj.__table__.columns` for full fidelity.
-- **Clear all data** — `st.warning` banner + checkbox confirmation guard (`settings_clear_confirm`
-  key); once checked, primary "Clear All Data" button calls `crud.clear_all_data()` (new function
-  added in Phase 10), clears `st.cache_data`, resets session state, shows success, and reruns.
-- **Seed Data section** — description table (tasks/goals/habits/events counts); "Force re-seed"
-  checkbox; "Seed Database" button calls `seed_database(force=...)` from `utils/seed.py`;
-  shows `st.warning` if skipped, `st.success` with counts if inserted; calls
-  `st.cache_data.clear()` and `st.rerun()` on success.
-- **About section** — two-column layout: app version, Python/Streamlit/SQLAlchemy/platform
-  versions; spec file name and DB path.
-
-**New CRUD functions added to `db/crud.py`:**
-- `get_db_stats()` — returns dict of active + total counts per table
-- `clear_all_data()` — hard-deletes all rows in FK-safe order; returns per-table deleted counts
-
-**`utils/seed.py`:**
-- `seed_database(force=False)` — inserts 10 tasks, 6 goals (4 top-level + 2 sub-goals),
-  5 habits, 6 calendar events
-- "Launch Personal Website" goal uses `progress_mode="auto"` with 4 linked tasks
-- All dates are relative to `date.today()` so seed data stays fresh on any run date
-- `_tables_empty()` guard checks tasks + goals + habits before inserting when `force=False`
-- Returns `{"skipped": True, "reason": "..."}` or `{"tasks": N, "goals": N, ...}`
-
-**`assets/style.css`:**
-- Created; loaded by `app.py` via `Path(__file__).parent / "assets" / "style.css"` and
-  injected with `st.markdown("<style>…</style>", unsafe_allow_html=True)` after `set_page_config`.
-- Tweaks: sidebar width (230–265 px), expander header padding, metric label font size,
-  chat bubble padding/radius, progress bar border-radius, form border-radius.
-
-**`app.py` change:**
-- Added `from pathlib import Path`; CSS is loaded after `st.set_page_config()` on every render.
-
-**Session state keys used by settings page:**
-```
-settings_export_json     str     cached JSON string between Prepare/Download clicks
-settings_clear_confirm   bool    confirmation checkbox for clear all data
-settings_seed_force      bool    force re-seed checkbox
-```
-
-### `integrations/google_calendar.py` — COMPLETE (Phase 11)
-
-**Files created/modified:**
-- `integrations/__init__.py` — empty package init
-- `integrations/google_calendar.py` — full OAuth + sync implementation
-- `db/crud.py` — added `update_google_event()` (bypasses `is_read_only` for sync)
-- `agent/tools.py` — added `_SYNC_GOOGLE_CALENDAR` tool + `_exec_sync_google_calendar` executor
-- `pages/settings.py` — added Google Calendar section (section 2 of 5)
-- `app.py` — added global OAuth callback handler (before overdue counter)
-
-**OAuth flow:**
-- Client secrets stored in `data/google_client_secrets.json` (user must create via Google Cloud Console)
-- Token stored in `data/google_token.json`; auto-refreshed when expired
-- OAuth state persisted in `data/google_auth_pending.json` between the initial redirect and callback
-- Redirect URI defaults to `http://localhost:8501`; overridable via `STREAMLIT_REDIRECT_URI` env var
-- **Global callback handler in `app.py`** detects `?code=` query param on any page, exchanges the
-  code, and redirects cleanly — works regardless of which page Streamlit shows after Google's redirect
-
-**Key functions:**
-- `has_client_secrets()` — checks for `data/google_client_secrets.json`
-- `is_authenticated()` — checks token validity; auto-refreshes if expired
-- `get_auth_url(redirect_uri)` — generates OAuth URL; saves state to pending file; returns URL
-- `has_pending_auth()` — True if pending auth file exists
-- `exchange_code(code)` — reads state from pending file; exchanges code; persists token
-- `revoke_token()` — deletes token file and pending file
-- `list_calendars()` — returns user's calendar list via API
-- `fetch_events(calendar_id, start, end)` — paginates through all events; returns raw dicts
-- `sync_calendar(calendar_id)` — full sync: create/update events, mark stale absent events
-- `get_last_sync(calendar_id)` / `get_all_synced_calendars()` — reads `data/google_sync_info.json`
-
-**Sync behaviour:**
-- Window: 30 days back → 90 days forward from now (UTC)
-- Dedup key: `google_event_id`
-- New events: `crud.create_event()` with `source='google'`, `is_read_only=True`, `event_type='google_import'`
-- Existing events: `crud.update_google_event()` to refresh title/times and clear `sync_stale`
-- Absent events: `sync_stale=True` (not deleted, protected against partial-sync data loss)
-- Last-sync timestamp written to `data/google_sync_info.json` per calendar
-
-**`pages/settings.py` Google Calendar section:**
-- State machine: Setup (no client_secrets) → Not Connected → Connected
-- Setup state: collapsible instructions expander with step-by-step Google Cloud Console guide
-- Not Connected: "Connect" button generates auth URL + shows clickable link; "Cancel" cleans up
-- Connected: calendar selectbox, last-sync caption, synced event count, "Sync Now" (primary),
-  "↺ Refresh list" button (clears `gc_calendars` session cache and re-fetches),
-  "Disconnect" button; calendar list cached in `st.session_state["gc_calendars"]`
-
-**Bug fixes applied post-Phase 11:**
-- `list_calendars()` now passes `showHidden=True` to `calendarList().list()` — required for
-  URL-subscribed calendars ("Other calendars" → "Subscribe from URL") which Google marks as
-  hidden entries and excludes from the default API response
-- `list_calendars()` now paginates (was single-page, missed calendars beyond first 100)
-- Settings page: added "↺ Refresh list" button to force-clear the `gc_calendars` session cache
-
-**Session state keys added by settings page (Google Calendar):**
-```
-gc_auth_url          str        OAuth authorization URL (shown as clickable link)
-gc_calendars         List[dict] cached calendar list from API
-gc_selected_cal_idx  int        selectbox index for calendar selection
-```
-
-**Agent tools added (Phase 11):**
-
-| Tool | Required params | Optional params |
-|---|---|---|
-| `sync_google_calendar` | none | `calendar_id` (default `"primary"`) |
-
-`sync_google_calendar` executor imports from `integrations.google_calendar` lazily (inside the
-function) so the agent module does not hard-depend on the google packages being installed.
+The second non-straightforward LLM feature:
+- Python: aggregate CRUD functions + FastAPI endpoint + LLM structured JSON output
+- React: Recharts visualisations + insights panel
+- Non-straightforward: data aggregation → LLM → structured JSON parsing → visual highlighting
+Full spec in CURRENT SPRINT when Sprint 3 is complete.
 
 ---
 
-## Key Implementation Decisions
+## Critical Rules — Never Violate
 
-### Type hints — Python 3.9 compatibility
-**Never use `X | Y` union syntax.** Use `Optional[X]` from `typing`.
-`from __future__ import annotations` prevents runtime errors but is not a fix — avoid the pattern entirely.
-Affected modules must import `Optional` from `typing`.
+- **Python 3.9:** `Optional[X]` always. No `X | Y` union syntax.
+- **All DB access via `crud.py`:** No direct ORM queries anywhere else.
+- **Habits use `is_active`, not `deleted_at`:** Archive ≠ soft-delete.
+- **Tasks/Goals/Events use `deleted_at`:** Soft delete only.
+- **`execute_tool()` never raises:** Always returns `{"error": "..."}` on failure.
+- **`is_read_only` events:** Never allow edits. CRUD layer enforces with `PermissionError`.
+- **Optimistic locking (UI only):** UI passes `current_updated_at`; agent does not.
+- **FastAPI routers are thin:** No business logic in routers. All logic stays in crud.py / agent/.
+- **Scope rule:** Only touch files in the current sprint's scope.
+- **TypeScript:** No `any` types. Every API response typed against `src/types/index.ts`.
+- **Components:** All styling via Tailwind utility classes. No inline `style={{}}` except for
+  dynamic values (colours from `theme.ts`, chart dimensions).
 
-### Soft deletes
-Tasks, Goals, CalendarEvents have `deleted_at DATETIME`. `NULL` = active, set = deleted.
-All queries default to `filter(Model.deleted_at.is_(None))`.
-Pass `include_deleted=True` to see deleted rows.
-Habits do NOT use soft delete — they use `is_active=False` (archive, history preserved).
+---
 
-### Optimistic locking (Tasks + Goals)
-`update_task(task_id, current_updated_at=X, ...)` adds `WHERE updated_at = X` to the query.
-If the row was modified by another operation since it was last read, the query returns None
-and raises `ValueError`. UI pages pass `task.updated_at`; agent does not (no concurrency risk).
+## Database Schema Reference
 
-### `is_read_only` enforcement at CRUD layer
-`update_event()` and `delete_event()` raise `PermissionError` if `event.is_read_only = True`.
-Enforced in Python before the SQL — agent cannot bypass this even with a wrong tool call.
-Google-imported events have `source='google'`, `is_read_only=True`, `event_type='google_import'`.
+All unchanged from v1. Full schema documented below for reference when writing FastAPI
+Pydantic response models and TypeScript types.
 
-### `expire_on_commit=False` in SessionLocal
-ORM objects remain accessible after the session closes. Without this, accessing attributes
-after `session.commit()` would trigger a lazy-load on a closed session and raise an error.
+**`tasks`** — soft delete (`deleted_at`), optimistic locking (`updated_at`)
+Fields: `id`, `title`, `description`, `status`, `priority`, `due_date`, `project_id`,
+`scheduled_at`, `estimated_minutes`, `energy_level`, `tags`, `created_at`, `updated_at`, `deleted_at`
 
-### `st.navigation()` for routing
-Uses Streamlit 1.37+ API. Disables automatic `pages/` directory discovery.
-The `pages/*.py` files are executed as scripts (not imported as modules) when their page is active.
-`app.py` code runs **before** the page script on every rerun — `db_init()` and `load_dotenv()`
-therefore run on every page load, which is intentional and safe.
+**`goals`** — soft delete, optimistic locking, self-referential (`parent_id`)
+Fields: `id`, `title`, `description`, `status`, `target_date`, `progress_pct`,
+`progress_mode`, `parent_id`, `created_at`, `updated_at`, `deleted_at`
+Auto-progress: when `progress_mode="auto"`, `progress_pct` recalculates from linked task completion.
 
-### `st.cache_data.clear()` after writes
-Called after any write in the tasks page (and will be called in all future pages) to force
-`_overdue_count()` in `app.py` to recompute on the next rerun, keeping the sidebar badge fresh.
+**`calendar_events`** — soft delete (local only), read-only for Google events
+Fields: `id`, `title`, `description`, `event_type`, `start_datetime`, `end_datetime`,
+`location`, `task_id`, `is_recurring`, `recurrence_rule`, `source`, `google_event_id`,
+`google_calendar_id`, `is_read_only`, `sync_stale`, `created_at`, `deleted_at`
 
-### NL quick-add parser
-Pure regex, no AI. Processes text in this order: extract tags → extract priority → extract date →
-remaining text = title. Collapsed whitespace at the end. Day names always resolve to the NEXT
-occurrence (never today, even if today is that weekday).
+**`habits`** — `is_active` flag (not `deleted_at`), no soft delete
+Fields: `id`, `title`, `description`, `frequency`, `target_days` (JSON int array),
+`time_of_day`, `streak_current`, `streak_best`, `is_active`, `created_at`
 
-### `st.form` inside `st.expander`
-Edit forms use `st.form` so field changes do not trigger reruns until Save is clicked.
-Two `st.form_submit_button`s (Save, Delete) coexist in one form — each returns `True` only
-when that specific button is clicked.
-After Save, set `st.session_state[f"expanded_{task.id}"] = True` then call `st.rerun()` to
-keep the expander open with fresh data.
+**`habit_completions`**
+Fields: `id`, `habit_id`, `completed_date`, `completed_at`, `note`
+`mark_habit_complete()` is idempotent.
 
-### Agent tool executor pattern
-```python
-def execute_tool(name: str, args: dict) -> dict:
-    # Returns {"error": "..."} on any failure — never raises
-    # Agent loop receives this as a tool result, surfaces it to Claude
-```
-All tool executor functions copy the args dict before mutating it (e.g. popping `task_id`).
+**`ai_conversation_history`**
+Fields: `id`, `session_id`, `role` (user|assistant|tool), `content`, `tool_name`,
+`token_count`, `created_at`
 
-### Google Calendar columns baked in from Phase 1
-`source`, `google_event_id`, `google_calendar_id`, `is_read_only`, `sync_stale` exist on
-`calendar_events` from day one. Phase 11 activates them — no migration needed.
+**`user_preferences`** — NEW (added Sprint 1)
+Fields: `key` (PK), `value`, `updated_at`
 
-### `sync_stale` vs hard delete for Google events
-When a Google event is absent from the latest sync but exists locally, set `sync_stale=True`
-rather than deleting. Protects against partial-sync data loss. Stale events excluded from
-agent context and visually dimmed; not removed until user confirms full re-sync.
+---
+
+## Completed Log
+
+| Sprint | Date | Notes |
+|---|---|---|
+| v1 Phases 1–11 | Feb 2026 | Full Streamlit prototype — all 11 phases complete |
+| Stack decision | Mar 2026 | Moved from Streamlit to FastAPI + React + Tailwind + shadcn/ui |
+| Design spec | Mar 2026 | Full design system defined (productivity_planner_design_spec.md) |
+| *(Sprint 0 entry goes here after completion)* | | |
