@@ -33,10 +33,14 @@ async def lifespan(app: FastAPI):
     # Seed demo data on first run (no-op if data already exists)
     seed_database()
     # Warn if AI features will be unavailable
-    if not os.environ.get("ANTHROPIC_API_KEY"):
-        print("\n⚠️  WARNING: ANTHROPIC_API_KEY is not set.")
-        print("   AI Assistant and Analytics Insights will not work.")
-        print("   Copy backend/.env.example to backend/.env and add your key.\n")
+    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+    if not api_key or api_key == "your-anthropic-api-key-here":
+        print("\n" + "="*60)
+        print("WARNING: ANTHROPIC_API_KEY is not set.")
+        print("AI Assistant and Analytics Insights will not work.")
+        print("Steps: edit backend/.env and replace the placeholder")
+        print("with your real key from https://console.anthropic.com")
+        print("="*60 + "\n")
     yield
 
 

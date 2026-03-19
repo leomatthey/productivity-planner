@@ -80,7 +80,8 @@ cp .env.example .env
 # Open .env and replace 'your-anthropic-api-key-here' with your actual key
 
 # Start the API server
-uvicorn main:app --reload --port 8000
+python3 -m uvicorn main:app --reload --port 8000
+# (or just: uvicorn main:app --reload --port 8000 if uvicorn is in your PATH)
 ```
 
 On first startup, the server automatically creates the SQLite database and seeds it with realistic demo data (tasks, goals, habits, calendar events). You will see a confirmation in the terminal.
