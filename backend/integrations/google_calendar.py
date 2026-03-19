@@ -325,6 +325,9 @@ def sync_calendar(calendar_id: str) -> Dict[str, Any]:
         for ev in all_google
         if ev.google_calendar_id == calendar_id and ev.google_event_id
     }
+    # Global dedup: event IDs that exist in ANY calendar (prevents cross-calendar duplicates
+    # when Google returns the primary calendar under both "primary" and the email address).
+    global_existing_gids = {ev.google_event_id for ev in all_google if ev.google_event_id}
 
     created      = 0
     updated      = 0
@@ -343,6 +346,10 @@ def sync_calendar(calendar_id: str) -> Dict[str, Any]:
 
         if start_dt is None or end_dt is None:
             continue  # Skip events with unparseable times
+
+        if g_id in global_existing_gids and g_id not in existing_by_gid:
+            # Event already stored under a different calendar_id — skip to avoid duplicate
+            continue
 
         if g_id in existing_by_gid:
             db_evt = existing_by_gid[g_id]

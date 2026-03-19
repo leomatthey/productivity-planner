@@ -24,7 +24,7 @@ function PreferencesSection() {
   const qc = useQueryClient()
   const [workStart, setWorkStart] = useState('09:00')
   const [workEnd, setWorkEnd]     = useState('18:00')
-  const [theme, setTheme]         = useState('light')
+  const [theme, setTheme]         = useState(() => localStorage.getItem('theme') ?? 'light')
   const [dirty, setDirty]         = useState(false)
 
   const { data: prefs } = useQuery({
@@ -40,6 +40,11 @@ function PreferencesSection() {
       setDirty(false)
     }
   }, [prefs])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', theme === 'dark')
+    localStorage.setItem('theme', theme)
+  }, [theme])
 
   const savePrefs = useMutation({
     mutationFn: async () => {
@@ -87,7 +92,7 @@ function PreferencesSection() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="light">Light</SelectItem>
-              <SelectItem value="dark">Dark (coming soon)</SelectItem>
+              <SelectItem value="dark">Dark</SelectItem>
               <SelectItem value="system">System</SelectItem>
             </SelectContent>
           </Select>

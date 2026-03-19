@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
-import { Send, Plus, ChevronDown, ChevronRight, Bot, User, Wrench } from 'lucide-react'
+import remarkGfm from 'remark-gfm'
+import { Send, Plus, ChevronDown, ChevronRight, PanelLeft, Bot, User, Wrench } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -84,12 +85,22 @@ function MessageBubble({ msg }: { msg: DisplayMessage }) {
         ) : (
           <>
             <ReactMarkdown
+              remarkPlugins={[remarkGfm]}
               components={{
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                 ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
                 ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
+                li: ({ children }) => <li className="mb-0.5">{children}</li>,
                 code: ({ children }) => <code className="font-mono bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">{children}</code>,
                 pre: ({ children }) => <pre className="font-mono bg-slate-100 dark:bg-slate-700 p-2 rounded text-xs overflow-x-auto mb-2">{children}</pre>,
+                table: ({ children }) => <table className="w-full text-xs border-collapse mb-2">{children}</table>,
+                th: ({ children }) => <th className="border border-slate-300 dark:border-slate-600 px-2 py-1 bg-slate-100 dark:bg-slate-700 font-semibold text-left">{children}</th>,
+                td: ({ children }) => <td className="border border-slate-300 dark:border-slate-600 px-2 py-1">{children}</td>,
+                strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                h1: ({ children }) => <h1 className="text-base font-bold mb-1 mt-2">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-sm font-bold mb-1 mt-2">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-sm font-semibold mb-1 mt-1">{children}</h3>,
+                hr: () => <hr className="border-slate-200 dark:border-slate-700 my-2" />,
               }}
             >
               {msg.content}
@@ -112,6 +123,7 @@ export function AIAssistant() {
   const [messages, setMessages]       = useState<DisplayMessage[]>([])
   const [input, setInput]             = useState('')
   const [streaming, setStreaming]     = useState(false)
+  const [sidebarOpen, setSidebarOpen] = useState(true)
   const bottomRef                     = useRef<HTMLDivElement>(null)
   const textareaRef                   = useRef<HTMLTextAreaElement>(null)
 
@@ -232,9 +244,9 @@ export function AIAssistant() {
   }
 
   return (
-    <div className="flex h-screen bg-white overflow-hidden">
+    <div className="flex h-screen bg-white dark:bg-slate-900 overflow-hidden">
       {/* Left sidebar — session list */}
-      <div className="w-[240px] border-r border-slate-200 flex flex-col bg-slate-50 shrink-0">
+      <div className={`border-r border-slate-200 dark:border-slate-700 flex flex-col bg-slate-50 dark:bg-slate-800 shrink-0 overflow-hidden transition-[width] duration-200 ${sidebarOpen ? 'w-[240px]' : 'w-0'}`}>
         <div className="h-[52px] border-b border-slate-200 flex items-center px-4 gap-2">
           <span className="text-sm font-semibold text-slate-700 flex-1">Conversations</span>
           <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={startNewSession} title="New session">
@@ -272,9 +284,16 @@ export function AIAssistant() {
 
       {/* Right — chat */}
       <div className="flex-1 flex flex-col min-h-0">
-        {/* Top bar (not using AppShell since full-height layout) */}
-        <div className="h-[56px] border-b border-slate-200 flex items-center px-8 shrink-0">
-          <h1 className="text-xl font-semibold text-slate-900 tracking-tight">AI Assistant</h1>
+        {/* Top bar */}
+        <div className="h-[56px] border-b border-slate-200 dark:border-slate-700 flex items-center px-4 shrink-0 bg-white dark:bg-slate-900">
+          <button
+            onClick={() => setSidebarOpen(o => !o)}
+            className="mr-3 p-1.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 transition-colors"
+            title={sidebarOpen ? 'Hide history' : 'Show history'}
+          >
+            <PanelLeft size={16} />
+          </button>
+          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100 tracking-tight">AI Assistant</h1>
         </div>
 
         {/* Messages */}

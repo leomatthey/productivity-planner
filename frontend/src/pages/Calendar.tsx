@@ -64,12 +64,18 @@ interface BigCalEvent {
   resource: CalendarEvent
 }
 
+// Backend stores datetimes as naive UTC (no 'Z' suffix). Without it, browsers
+// treat the string as local time. Appending 'Z' ensures correct UTC→local conversion.
+function toUTC(iso: string): Date {
+  return new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z')
+}
+
 function toBigCalEvent(e: CalendarEvent): BigCalEvent {
   return {
     id: e.id,
     title: e.title,
-    start: new Date(e.start_datetime),
-    end:   new Date(e.end_datetime),
+    start: toUTC(e.start_datetime),
+    end:   toUTC(e.end_datetime),
     resource: e,
   }
 }
@@ -281,10 +287,10 @@ function EventPopover({ state, calendarColors, calendarNames, onClose, onEdit, o
         <div className="flex items-start gap-2 text-slate-600 dark:text-slate-400 text-xs">
           <Clock size={13} className="mt-0.5 shrink-0 text-slate-400" />
           <div>
-            <div>{format(new Date(event.start_datetime), 'EEEE, MMMM d')}</div>
+            <div>{format(toUTC(event.start_datetime), 'EEEE, MMMM d')}</div>
             <div className="text-slate-500">
-              {format(new Date(event.start_datetime), 'h:mm a')} –{' '}
-              {format(new Date(event.end_datetime), 'h:mm a')}
+              {format(toUTC(event.start_datetime), 'h:mm a')} –{' '}
+              {format(toUTC(event.end_datetime), 'h:mm a')}
             </div>
           </div>
         </div>
@@ -461,9 +467,10 @@ export function Calendar() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing]   = useState<CalendarEvent | null>(null)
   const [defStart, setDefStart] = useState<Date | undefined>()
-  const [syncing, setSyncing]   = useState(false)
-  const [popover, setPopover]   = useState<PopoverState | null>(null)
-  const [hidden, setHidden]     = useState<Set<string>>(new Set())
+  const [syncing, setSyncing]       = useState(false)
+  const [popover, setPopover]       = useState<PopoverState | null>(null)
+  const [hidden, setHidden]         = useState<Set<string>>(new Set())
+  const [sidebarOpen, setSidebarOpen] = useState(true)
 
   // Fetch window: 2 months around current date
   const viewStart = new Date(date.getFullYear(), date.getMonth() - 1, 1)
@@ -650,9 +657,9 @@ export function Calendar() {
         </header>
 
         {/* Two-panel body */}
-        <div className="flex flex-1 overflow-hidden min-h-0">
+        <div className="flex flex-1 overflow-hidden min-h-0 relative">
           {/* Left panel */}
-          <aside className="w-[220px] border-r border-slate-200 dark:border-slate-700 flex flex-col overflow-y-auto shrink-0 bg-white dark:bg-slate-800">
+          <aside className={`flex flex-col overflow-y-auto shrink-0 bg-white dark:bg-slate-800 transition-[width] duration-200 ${sidebarOpen ? 'w-[220px] border-r border-slate-200 dark:border-slate-700' : 'w-0 overflow-hidden'}`}>
             <MiniCalendar selectedDate={date} onSelectDate={setDate} />
             {calendarList.length > 0 && (
               <CalendarFilterList
@@ -662,6 +669,16 @@ export function Calendar() {
               />
             )}
           </aside>
+
+          {/* Sidebar toggle button — floats at the sidebar edge */}
+          <button
+            onClick={() => setSidebarOpen(o => !o)}
+            style={{ left: sidebarOpen ? '209px' : '4px' }}
+            className="absolute top-3 z-20 -translate-x-1/2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full w-6 h-6 flex items-center justify-center shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-[left] duration-200"
+            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
+          >
+            <ChevronLeft size={12} className={`text-slate-500 transition-transform duration-200 ${sidebarOpen ? '' : 'rotate-180'}`} />
+          </button>
 
           {/* Calendar grid */}
           <main className="flex-1 overflow-hidden min-w-0 p-0">
