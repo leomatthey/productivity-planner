@@ -19,6 +19,7 @@ __pycache__/
 
 # Claude Code internal
 .claude/
+CLAUDE.md
 
 # Project-specific ignores
 productivity_planner_spec_v2.1.docx
