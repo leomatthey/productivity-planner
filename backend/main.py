@@ -42,7 +42,7 @@ app.add_middleware(
 app.include_router(tasks.router,       prefix="/api/tasks",      tags=["tasks"])
 app.include_router(goals.router,       prefix="/api/goals",      tags=["goals"])
 app.include_router(habits.router,      prefix="/api/habits",     tags=["habits"])
-app.include_router(calendar.router,    prefix="/api",            tags=["calendar"])
+app.include_router(calendar.router,    prefix="/api/calendar",   tags=["calendar"])
 app.include_router(ai.router,          prefix="/api/ai",         tags=["ai"])
 app.include_router(analytics.router,   prefix="/api/analytics",  tags=["analytics"])
 app.include_router(preferences.router, prefix="/api/preferences",tags=["preferences"])

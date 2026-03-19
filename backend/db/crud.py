@@ -689,16 +689,52 @@ def get_conversation(
         return q.all()
 
 
-def get_sessions() -> List[str]:
-    """Return distinct session IDs, most recent first."""
+def get_sessions() -> List[dict]:
+    """Return sessions that have at least one completed assistant response, most recent first."""
+    from sqlalchemy import func
     with get_session() as session:
-        rows = (
-            session.query(AIConversationHistory.session_id)
-            .distinct()
-            .order_by(AIConversationHistory.created_at.desc())
+        valid_ids = {
+            r.session_id for r in session.query(AIConversationHistory.session_id)
+            .filter(
+                AIConversationHistory.role == 'assistant',
+                AIConversationHistory.tool_name.is_(None),
+                AIConversationHistory.content.isnot(None),
+            ).distinct().all()
+        }
+        if not valid_ids:
+            return []
+
+        stats = (
+            session.query(
+                AIConversationHistory.session_id,
+                func.count(AIConversationHistory.id).label('message_count'),
+                func.max(AIConversationHistory.created_at).label('updated_at'),
+            )
+            .filter(AIConversationHistory.session_id.in_(valid_ids))
+            .group_by(AIConversationHistory.session_id)
+            .order_by(func.max(AIConversationHistory.created_at).desc())
             .all()
         )
-        return [r.session_id for r in rows]
+
+        results = []
+        for stat in stats:
+            first_user = (
+                session.query(AIConversationHistory)
+                .filter(
+                    AIConversationHistory.session_id == stat.session_id,
+                    AIConversationHistory.role == 'user',
+                    AIConversationHistory.content.isnot(None),
+                )
+                .order_by(AIConversationHistory.created_at.asc())
+                .first()
+            )
+            results.append({
+                'session_id': stat.session_id,
+                'last_message': (first_user.content or '')[:60] if first_user else '',
+                'message_count': stat.message_count,
+                'updated_at': stat.updated_at.isoformat() if stat.updated_at else None,
+            })
+        return results
 
 
 # ============================================================================

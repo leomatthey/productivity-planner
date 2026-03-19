@@ -33,6 +33,28 @@
   --radius:               0.5rem;
 }
 
+.dark {
+  --background:           222 47% 8%;
+  --foreground:           210 40% 98%;
+  --card:                 222 47% 11%;
+  --card-foreground:      210 40% 98%;
+  --popover:              222 47% 11%;
+  --popover-foreground:   210 40% 98%;
+  --primary:              243 75% 59%;
+  --primary-foreground:   0 0% 100%;
+  --secondary:            217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted:                217 33% 17%;
+  --muted-foreground:     215 20% 65%;
+  --accent:               217 33% 17%;
+  --accent-foreground:    210 40% 98%;
+  --destructive:          0 62% 30%;
+  --destructive-foreground: 0 0% 100%;
+  --border:               217 33% 18%;
+  --input:                217 33% 18%;
+  --ring:                 243 75% 59%;
+}
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
 
@@ -44,8 +66,8 @@
   }
 
   body {
-    background-color: #FFFFFF;
-    color: #334155;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
     font-family: theme('fontFamily.sans');
     line-height: 1.571;
   }
@@ -66,29 +88,30 @@
   }
 
   h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.5px;
-       color: #0F172A; line-height: 1.25; }
+       color: #0F172A; line-height: 1.25; @apply dark:text-slate-100; }
   h2 { font-size: 18px; font-weight: 600; letter-spacing: -0.3px;
-       color: #0F172A; line-height: 1.35; }
-  h3 { font-size: 15px; font-weight: 600; color: #1E293B; line-height: 1.4; }
-  h4 { font-size: 14px; font-weight: 600; color: #1E293B; }
+       color: #0F172A; line-height: 1.35; @apply dark:text-slate-100; }
+  h3 { font-size: 15px; font-weight: 600; color: #1E293B; line-height: 1.4;
+       @apply dark:text-slate-200; }
+  h4 { font-size: 14px; font-weight: 600; color: #1E293B; @apply dark:text-slate-200; }
 }
 
 @layer components {
   /* Cards */
-  .card         { @apply bg-white border border-slate-200 rounded-lg shadow-xs; }
-  .card-hover   { @apply card transition-all duration-150 hover:border-slate-300 hover:shadow-sm cursor-pointer; }
-  .card-subtle  { @apply bg-slate-50 border border-slate-200 rounded-lg; }
-  .card-elevated{ @apply bg-white border border-slate-200 rounded-xl shadow-lg; }
+  .card         { @apply bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xs; }
+  .card-hover   { @apply card transition-all duration-150 hover:border-slate-300 dark:hover:border-slate-600 hover:shadow-sm cursor-pointer; }
+  .card-subtle  { @apply bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700 rounded-lg; }
+  .card-elevated{ @apply bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg; }
 
   /* Metric tile */
   .metric-tile  { @apply card p-4 flex flex-col gap-1; }
-  .metric-value { @apply text-3xl font-bold text-slate-900 tracking-tight; }
+  .metric-value { @apply text-3xl font-bold text-slate-900 dark:text-slate-100 tracking-tight; }
   .metric-label { @apply text-xs font-medium text-slate-400 uppercase tracking-widest; }
 
   /* Section headers (task/goal groupings) */
   .section-header {
-    @apply text-xs font-semibold text-slate-400 uppercase tracking-widest
-           pt-3 pb-1.5 border-t border-slate-100 mt-1;
+    @apply text-xs font-semibold text-slate-400 dark:text-slate-500 uppercase tracking-widest
+           pt-3 pb-1.5 border-t border-slate-100 dark:border-slate-700 mt-1;
   }
   .section-header:first-of-type { @apply border-t-0 pt-0; }
 
@@ -117,11 +140,11 @@
   /* AI chat messages */
   .msg-user {
     @apply self-end max-w-[78%] bg-primary-50 border border-primary-200
-           rounded-xl rounded-br-sm px-3.5 py-2.5 text-base text-slate-800;
+           rounded-xl rounded-br-sm px-3.5 py-2.5 text-base text-slate-800 dark:text-slate-100;
   }
   .msg-assistant {
-    @apply self-start max-w-[85%] bg-white border border-slate-200 shadow-xs
-           rounded-xl rounded-tl-sm px-3.5 py-2.5 text-base text-slate-800;
+    @apply self-start max-w-[85%] bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 shadow-xs
+           rounded-xl rounded-tl-sm px-3.5 py-2.5 text-base text-slate-800 dark:text-slate-100;
   }
   .msg-tool {
     @apply self-start max-w-[85%] bg-slate-50 border border-slate-200 rounded-md
@@ -131,8 +154,8 @@
 
   /* Habit grid cells */
   .habit-cell-done          { @apply bg-success text-white; }
-  .habit-cell-missed        { @apply bg-slate-100 text-slate-300; }
-  .habit-cell-today-pending { @apply bg-white border-2 border-primary text-primary font-medium; }
+  .habit-cell-missed        { @apply bg-slate-100 dark:bg-slate-700 text-slate-300 dark:text-slate-400; }
+  .habit-cell-today-pending { @apply bg-white dark:bg-slate-700 border-2 border-primary text-primary dark:text-primary-300 font-medium; }
   .habit-cell-today-done    { @apply bg-success text-white ring-2 ring-success ring-offset-1; }
   .habit-cell-empty         { @apply bg-transparent; }
 }
@@ -143,3 +166,27 @@
     @apply inline-block w-0.5 h-3.5 bg-primary rounded-sm align-middle ml-0.5 animate-pulse;
   }
 }
+
+/* react-big-calendar: hide default time label — we render our own */
+.rbc-event-label { display: none !important; }
+
+/* react-big-calendar dark mode overrides */
+.dark .rbc-calendar { background-color: #1e293b; color: #cbd5e1; }
+.dark .rbc-header { border-bottom-color: #334155; color: #94a3b8; }
+.dark .rbc-header + .rbc-header { border-left-color: #334155; }
+.dark .rbc-month-view { border-color: #334155; }
+.dark .rbc-day-bg + .rbc-day-bg { border-left-color: #334155; }
+.dark .rbc-month-row + .rbc-month-row { border-top-color: #334155; }
+.dark .rbc-off-range-bg { background: #0f172a; }
+.dark .rbc-today { background-color: rgba(79, 70, 229, 0.15); }
+.dark .rbc-time-view { border-color: #334155; }
+.dark .rbc-time-header { border-bottom-color: #334155; }
+.dark .rbc-time-header-content { border-left-color: #334155; }
+.dark .rbc-time-header.rbc-overflowing { border-right-color: #334155; }
+.dark .rbc-time-content { border-top-color: #334155; }
+.dark .rbc-time-content > * + * > * { border-left-color: #334155; }
+.dark .rbc-timeslot-group { border-bottom-color: #334155; }
+.dark .rbc-time-slot { color: #64748b; }
+.dark .rbc-day-slot .rbc-time-slot { border-top-color: #1e293b; }
+.dark .rbc-label { color: #94a3b8; }
+.dark .rbc-show-more { color: #818cf8; }

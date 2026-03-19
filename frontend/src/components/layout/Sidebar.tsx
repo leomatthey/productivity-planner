@@ -17,13 +17,13 @@ const navItems = [
 
 export function Sidebar() {
   return (
-    <aside className="fixed top-0 left-0 h-screen w-[240px] bg-slate-50
-                      border-r border-slate-200 flex flex-col z-20">
+    <aside className="fixed top-0 left-0 h-screen w-[240px] bg-slate-50 dark:bg-slate-800
+                      border-r border-slate-200 dark:border-slate-700 flex flex-col z-20">
 
       {/* Brand */}
-      <div className="h-[52px] flex items-center px-4 border-b border-slate-200 shrink-0">
+      <div className="h-[52px] flex items-center px-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
         <div>
-          <div className="text-base font-bold text-slate-900 tracking-tight leading-none">
+          <div className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight leading-none">
             Planner
           </div>
           <div className="text-xs font-medium text-slate-400 uppercase tracking-widest
@@ -45,8 +45,8 @@ export function Sidebar() {
                   `flex items-center gap-2 px-2.5 h-8 rounded-sm text-sm font-medium
                    transition-colors duration-100 select-none
                    ${isActive
-                     ? 'bg-primary-50 text-primary-600 font-semibold'
-                     : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                     ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-400 font-semibold'
+                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 hover:text-slate-900 dark:hover:text-slate-100'
                    }`
                 }
               >
@@ -67,7 +67,7 @@ export function Sidebar() {
       </nav>
 
       {/* Bottom */}
-      <div className="h-[48px] border-t border-slate-200 flex items-center px-4">
+      <div className="h-[48px] border-t border-slate-200 dark:border-slate-700 flex items-center px-4">
         <span className="text-xs text-slate-400">v2.0</span>
       </div>
     </aside>

@@ -115,7 +115,7 @@ interface TaskRowProps {
 function TaskRow({ task, onToggle, onSelect, onDelete }: TaskRowProps) {
   const done = task.status === 'done'
   return (
-    <div className={`flex items-center gap-3 px-3 py-2 rounded group hover:bg-slate-50 ${done ? 'opacity-60' : ''}`}>
+    <div className={`flex items-center gap-3 px-3 py-2 rounded group hover:bg-slate-50 dark:hover:bg-slate-700/50 ${done ? 'opacity-60' : ''}`}>
       <button
         className="shrink-0 text-slate-300 hover:text-primary focus:outline-none"
         onClick={() => onToggle(task)}
@@ -127,7 +127,7 @@ function TaskRow({ task, onToggle, onSelect, onDelete }: TaskRowProps) {
       </button>
 
       <button
-        className={`flex-1 text-left text-sm ${done ? 'line-through text-slate-400' : 'text-slate-800'}`}
+        className={`flex-1 text-left text-sm ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}
         onClick={() => onSelect(task)}
       >
         {task.title}
@@ -295,8 +295,8 @@ export function Tasks() {
   const qc = useQueryClient()
 
   const [search, setSearch]        = useState('')
-  const [filterStatus, setFStatus] = useState('')
-  const [filterPriority, setFPrio] = useState('')
+  const [filterStatus, setFStatus] = useState('all')
+  const [filterPriority, setFPrio] = useState('all')
   const [groupBy, setGroupBy]      = useState<'status' | 'priority' | 'due_date'>('status')
   const [selected, setSelected]    = useState<Task | null>(null)
   const [slideOpen, setSlideOpen]  = useState(false)
@@ -307,8 +307,8 @@ export function Tasks() {
   const { data: allTasks = [], isLoading } = useQuery({
     queryKey: ['tasks', filterStatus, filterPriority],
     queryFn: () => tasks.list({
-      status:   filterStatus   || undefined,
-      priority: filterPriority || undefined,
+      status:   filterStatus   !== 'all' ? filterStatus   : undefined,
+      priority: filterPriority !== 'all' ? filterPriority : undefined,
     }),
   })
 
@@ -428,7 +428,7 @@ export function Tasks() {
             <SelectValue placeholder="All statuses" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All statuses</SelectItem>
+            <SelectItem value="all">All statuses</SelectItem>
             {(Object.keys(STATUS_LABELS) as TaskStatus[]).map(s => (
               <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
             ))}
@@ -440,19 +440,19 @@ export function Tasks() {
             <SelectValue placeholder="All priorities" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="">All priorities</SelectItem>
+            <SelectItem value="all">All priorities</SelectItem>
             {PRIORITY_ORDER.map(p => (
               <SelectItem key={p} value={p}>{p}</SelectItem>
             ))}
           </SelectContent>
         </Select>
 
-        {(filterStatus || filterPriority) && (
+        {(filterStatus !== 'all' || filterPriority !== 'all') && (
           <Button
             variant="ghost"
             size="sm"
             className="h-8 text-xs text-slate-500"
-            onClick={() => { setFStatus(''); setFPrio('') }}
+            onClick={() => { setFStatus('all'); setFPrio('all') }}
           >
             <X size={12} className="mr-1" />Clear
           </Button>
@@ -477,7 +477,7 @@ export function Tasks() {
           </div>
         ) : filtered.length === 0 ? (
           <p className="p-6 text-sm text-slate-400 text-center">
-            {search || filterStatus || filterPriority ? 'No tasks match your filters.' : 'No tasks yet — add one above!'}
+            {search || filterStatus !== 'all' || filterPriority !== 'all' ? 'No tasks match your filters.' : 'No tasks yet — add one above!'}
           </p>
         ) : (
           <div className="py-2">

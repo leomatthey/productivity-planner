@@ -313,7 +313,7 @@ function HighlightsRow({ highlights }: { highlights: InsightHighlight[] }) {
             <TrendIcon trend={h.trend} />
             <TrendArrow trend={h.trend} />
           </div>
-          <div className="text-xl font-bold text-slate-900">{h.value}</div>
+          <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{h.value}</div>
           <div className="metric-label">{h.metric.replace(/_/g, ' ')}</div>
           <p className="text-xs text-slate-500 mt-1 leading-tight">{h.insight}</p>
         </div>
@@ -325,10 +325,10 @@ function HighlightsRow({ highlights }: { highlights: InsightHighlight[] }) {
 function PatternsList({ patterns }: { patterns: InsightPattern[] }) {
   return (
     <div className="space-y-3 mb-6">
-      <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-widest">Patterns</h3>
+      <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Patterns</h3>
       {patterns.map((p, i) => (
         <div key={i} className={`rounded-lg p-4 ${SEVERITY_CLASSES[p.severity] ?? SEVERITY_CLASSES.neutral}`}>
-          <p className="font-semibold text-sm text-slate-800 mb-1">{p.title}</p>
+          <p className="font-semibold text-sm text-slate-800 dark:text-slate-200 mb-1">{p.title}</p>
           <p className="text-sm text-slate-600">{p.description}</p>
         </div>
       ))}
@@ -339,14 +339,14 @@ function PatternsList({ patterns }: { patterns: InsightPattern[] }) {
 function RecommendationsList({ recommendations }: { recommendations: InsightRecommendation[] }) {
   return (
     <div className="space-y-3 mb-6">
-      <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-widest">Recommendations</h3>
+      <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Recommendations</h3>
       {recommendations.map((r, i) => (
         <div key={i} className="card p-4 flex gap-3">
           <span className={PRIORITY_BADGE_CLASSES[r.priority] ?? PRIORITY_BADGE_CLASSES.medium}>
             {r.priority}
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-slate-800">{r.action}</p>
+            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{r.action}</p>
             <p className="text-xs text-slate-500 mt-0.5">{r.rationale}</p>
           </div>
         </div>
@@ -397,7 +397,7 @@ export function Analytics() {
 
   const { data: statsData, isLoading: statsLoading } = useQuery({
     queryKey: ['analytics-stats'],
-    queryFn: analytics.stats,
+    queryFn: analytics.full,
     refetchInterval: 60_000,
   })
 

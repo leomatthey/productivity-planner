@@ -88,8 +88,8 @@ function MessageBubble({ msg }: { msg: DisplayMessage }) {
                 p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
                 ul: ({ children }) => <ul className="list-disc pl-4 mb-2">{children}</ul>,
                 ol: ({ children }) => <ol className="list-decimal pl-4 mb-2">{children}</ol>,
-                code: ({ children }) => <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-xs">{children}</code>,
-                pre: ({ children }) => <pre className="font-mono bg-slate-100 p-2 rounded text-xs overflow-x-auto mb-2">{children}</pre>,
+                code: ({ children }) => <code className="font-mono bg-slate-100 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">{children}</code>,
+                pre: ({ children }) => <pre className="font-mono bg-slate-100 dark:bg-slate-700 p-2 rounded text-xs overflow-x-auto mb-2">{children}</pre>,
               }}
             >
               {msg.content}
@@ -249,7 +249,7 @@ export function AIAssistant() {
             className={`w-full text-left px-3 py-2 rounded text-sm mb-1 transition-colors
               ${!sessions.find((s: SessionRecord) => s.session_id === sessionId)
                 ? 'bg-primary-50 text-primary-700 font-medium'
-                : 'text-slate-600 hover:bg-slate-100'}`}
+                : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
           >
             <div className="truncate">New conversation</div>
           </button>
@@ -261,7 +261,7 @@ export function AIAssistant() {
               className={`w-full text-left px-3 py-2 rounded text-sm mb-0.5 transition-colors
                 ${s.session_id === sessionId
                   ? 'bg-primary-50 text-primary-700 font-medium'
-                  : 'text-slate-600 hover:bg-slate-100'}`}
+                  : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
             >
               <div className="truncate text-xs">{s.last_message || 'Session'}</div>
               <div className="text-xs text-slate-400 mt-0.5">{formatSessionDate(s.updated_at)}</div>
@@ -284,7 +284,7 @@ export function AIAssistant() {
               <div className="w-12 h-12 rounded-full bg-primary-50 flex items-center justify-center mb-4">
                 <Bot size={22} className="text-primary" />
               </div>
-              <h2 className="text-slate-700 mb-2">How can I help?</h2>
+              <h2 className="text-slate-700 dark:text-slate-300 mb-2">How can I help?</h2>
               <p className="text-sm text-slate-400 max-w-xs">
                 Ask me to create tasks, schedule events, analyse your goals, or anything about your productivity.
               </p>
@@ -300,7 +300,7 @@ export function AIAssistant() {
         </div>
 
         {/* Input */}
-        <div className="border-t border-slate-200 px-6 py-4 shrink-0">
+        <div className="border-t border-slate-200 dark:border-slate-700 px-6 py-4 shrink-0">
           <div className="max-w-2xl mx-auto flex items-end gap-2">
             <Textarea
               ref={textareaRef}

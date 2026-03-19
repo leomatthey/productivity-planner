@@ -185,7 +185,7 @@ function HabitCard({ habit, completedDates, onComplete, onEdit, onArchive }: Hab
               : <Circle size={18} className="text-slate-300 hover:text-primary transition-colors" />}
           </button>
           <div>
-            <h3 className="font-semibold text-slate-900 leading-tight">{habit.title}</h3>
+            <h3 className="font-semibold text-slate-900 dark:text-slate-100 leading-tight">{habit.title}</h3>
             {habit.description && (
               <p className="text-xs text-slate-500 mt-0.5">{habit.description}</p>
             )}
@@ -228,7 +228,7 @@ function HabitCard({ habit, completedDates, onComplete, onEdit, onArchive }: Hab
 
       {/* Streak info */}
       <div className="flex gap-4 mt-2 text-xs text-slate-400">
-        <span>Current: <strong className="text-slate-700">{habit.streak_current}</strong></span>
+        <span>Current: <strong className="text-slate-700 dark:text-slate-300">{habit.streak_current}</strong></span>
         <span>Best: <strong className="text-slate-700">{habit.streak_best}</strong></span>
       </div>
     </div>

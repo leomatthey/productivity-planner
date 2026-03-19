@@ -83,14 +83,14 @@ function TaskRow({ task, onToggle }: { task: Task; onToggle: (t: Task) => void }
   const done = task.status === 'done'
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2 rounded hover:bg-slate-50 group cursor-pointer
+      className={`flex items-center gap-3 px-3 py-2 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 group cursor-pointer
                   ${done ? 'opacity-50' : ''}`}
       onClick={() => onToggle(task)}
     >
       {done
         ? <CheckCircle2 size={16} className="text-success shrink-0" />
         : <Circle size={16} className="text-slate-300 group-hover:text-primary shrink-0" />}
-      <span className={`flex-1 text-sm ${done ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+      <span className={`flex-1 text-sm ${done ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>
         {task.title}
       </span>
       {task.priority === 'urgent' && <span className="badge-urgent">urgent</span>}
@@ -112,7 +112,7 @@ function HabitChip({ habit, onComplete }: {
       className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-sm font-medium border transition-all
         ${habit.today_done
           ? 'bg-success text-white border-success'
-          : 'bg-white text-slate-600 border-slate-200 hover:border-primary hover:text-primary'}`}
+          : 'bg-white dark:bg-slate-700 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-600 hover:border-primary hover:text-primary'}`}
     >
       {habit.today_done ? <CheckCircle2 size={13} /> : <Circle size={13} />}
       {habit.title}
@@ -126,10 +126,10 @@ function HabitChip({ habit, onComplete }: {
 function EventRow({ event }: { event: CalendarEvent }) {
   const colour = EVENT_COLOURS[event.event_type] ?? '#94A3B8'
   return (
-    <div className="flex items-start gap-3 px-3 py-2 rounded hover:bg-slate-50">
+    <div className="flex items-start gap-3 px-3 py-2 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50">
       <div className="w-1 self-stretch rounded-full mt-1 shrink-0" style={{ backgroundColor: colour }} />
       <div className="flex-1 min-w-0">
-        <div className="text-sm text-slate-800 truncate">{event.title}</div>
+        <div className="text-sm text-slate-800 dark:text-slate-200 truncate">{event.title}</div>
         <div className="text-xs text-slate-400">{formatDate(event.start_datetime)} · {formatTime(event.start_datetime)}</div>
       </div>
     </div>

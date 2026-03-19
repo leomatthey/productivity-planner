@@ -119,7 +119,7 @@ def delete_event(event_id: int):
 #  Google Calendar endpoints
 # ---------------------------------------------------------------------------
 
-@router.get("/calendar/status")
+@router.get("/status")
 def google_status():
     try:
         from integrations.google_calendar import is_authenticated, has_client_secrets
@@ -131,7 +131,7 @@ def google_status():
         return {"authenticated": False, "has_secrets_file": False, "error": "google libraries not installed"}
 
 
-@router.get("/calendar/auth-url")
+@router.get("/auth-url")
 def google_auth_url(redirect_uri: str = Query(...)):
     try:
         from integrations.google_calendar import get_auth_url
@@ -143,7 +143,7 @@ def google_auth_url(redirect_uri: str = Query(...)):
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.post("/calendar/exchange-code")
+@router.post("/exchange-code")
 def google_exchange_code(body: ExchangeCodeRequest):
     try:
         from integrations.google_calendar import exchange_code
@@ -153,7 +153,7 @@ def google_exchange_code(body: ExchangeCodeRequest):
         raise HTTPException(status_code=400, detail=str(exc))
 
 
-@router.delete("/calendar/disconnect")
+@router.delete("/disconnect")
 def google_disconnect():
     try:
         from integrations.google_calendar import revoke_token
@@ -163,7 +163,7 @@ def google_disconnect():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.get("/calendar/list")
+@router.get("/list")
 def google_list_calendars():
     try:
         from integrations.google_calendar import list_calendars
@@ -174,7 +174,36 @@ def google_list_calendars():
         raise HTTPException(status_code=500, detail=str(exc))
 
 
-@router.post("/calendar/sync/{calendar_id:path}")
+@router.post("/sync-all")
+def google_sync_all():
+    """Sync every calendar in the user's Google Calendar account."""
+    try:
+        from integrations.google_calendar import list_calendars, sync_calendar
+        calendars = list_calendars()
+        total_fetched = 0
+        created = 0
+        updated = 0
+        stale_marked = 0
+        for cal in calendars:
+            result = sync_calendar(cal["id"])
+            total_fetched += result["total_fetched"]
+            created       += result["created"]
+            updated       += result["updated"]
+            stale_marked  += result["stale_marked"]
+        return {
+            "calendars_synced": len(calendars),
+            "total_fetched":    total_fetched,
+            "created":          created,
+            "updated":          updated,
+            "stale_marked":     stale_marked,
+        }
+    except RuntimeError as exc:
+        raise HTTPException(status_code=401, detail=str(exc))
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/sync/{calendar_id:path}")
 def google_sync(calendar_id: str):
     try:
         from integrations.google_calendar import sync_calendar

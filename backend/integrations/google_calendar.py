@@ -206,11 +206,12 @@ def list_calendars() -> List[Dict[str, Any]]:
             break
     return [
         {
-            "id":         item.get("id", ""),
-            "summary":    item.get("summary", "(no name)"),
-            "primary":    item.get("primary", False),
-            "timeZone":   item.get("timeZone", ""),
-            "accessRole": item.get("accessRole", ""),
+            "id":              item.get("id", ""),
+            "summary":         item.get("summary", "(no name)"),
+            "primary":         item.get("primary", False),
+            "timeZone":        item.get("timeZone", ""),
+            "accessRole":      item.get("accessRole", ""),
+            "backgroundColor": item.get("backgroundColor", "#94A3B8"),
         }
         for item in items
     ]

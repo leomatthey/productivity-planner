@@ -174,11 +174,11 @@ function SubGoalRow({ goal, onToggle, onDelete }: {
 }) {
   const done = goal.status === 'completed'
   return (
-    <div className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-slate-50 group">
+    <div className="flex items-center gap-2 px-3 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 group">
       <button onClick={() => onToggle(goal)} className="shrink-0 text-slate-300 hover:text-primary">
         {done ? <CheckCircle2 size={14} className="text-success" /> : <Circle size={14} />}
       </button>
-      <span className={`flex-1 text-sm ${done ? 'line-through text-slate-400' : 'text-slate-700'}`}>
+      <span className={`flex-1 text-sm ${done ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>
         {goal.title}
       </span>
       <span className={statusClass(goal.status as GoalStatus)}>{STATUS_LABELS[goal.status as GoalStatus]}</span>
@@ -222,7 +222,7 @@ function GoalCard({
           <div className="flex items-start gap-2">
             <Target size={16} className="text-primary mt-0.5 shrink-0" />
             <div>
-              <h3 className="font-semibold text-slate-900">{goal.title}</h3>
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100">{goal.title}</h3>
               {goal.description && (
                 <p className="text-sm text-slate-500 mt-0.5 line-clamp-2">{goal.description}</p>
               )}

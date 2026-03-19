@@ -8,6 +8,7 @@ const config: Config = {
       colors: {
         primary: {
           DEFAULT: '#4F46E5',
+          foreground: '#FFFFFF',
           50:  '#EEF2FF',
           100: '#E0E7FF',
           200: '#C7D2FE',
@@ -28,6 +29,23 @@ const config: Config = {
           reminder:  '#F59E0B',
           taskblock: '#10B981',
           google:    '#94A3B8',
+        },
+        border:     'hsl(var(--border))',
+        input:      'hsl(var(--input))',
+        ring:       'hsl(var(--ring))',
+        background: 'hsl(var(--background))',
+        foreground: 'hsl(var(--foreground))',
+        muted: {
+          DEFAULT:    'hsl(var(--muted))',
+          foreground: 'hsl(var(--muted-foreground))',
+        },
+        accent: {
+          DEFAULT:    'hsl(var(--accent))',
+          foreground: 'hsl(var(--accent-foreground))',
+        },
+        popover: {
+          DEFAULT:    'hsl(var(--popover))',
+          foreground: 'hsl(var(--popover-foreground))',
         },
       },
       fontFamily: {

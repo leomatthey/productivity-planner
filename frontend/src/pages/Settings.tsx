@@ -8,7 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { preferences, calendar, analytics } from '../lib/api'
-import type { AnalyticsStats, GoogleCalendarStatus } from '../lib/api'
+import type { DbStats, GoogleCalendarStatus } from '../lib/api'
 
 // ---------------------------------------------------------------------------
 // Dev mode detection
@@ -114,13 +114,14 @@ function DbStatsSection() {
     queryFn: analytics.stats,
   })
 
-  const s = stats as AnalyticsStats | undefined
-  const rows: Array<{ label: string; value: number }> = [
-    { label: 'Tasks (active)',           value: (s?.tasks.total ?? 0) - (s?.tasks.cancelled ?? 0) },
-    { label: 'Tasks (total)',            value: s?.tasks.total ?? 0 },
-    { label: 'Goals (active)',           value: s?.goals.in_progress ?? 0 },
-    { label: 'Habits (active)',          value: s?.habits.total_active ?? 0 },
-    { label: 'Calendar Events',          value: s?.calendar.total_events ?? 0 },
+  const rows: Array<{ label: string; key: keyof DbStats }> = [
+    { label: 'Tasks (active)',        key: 'tasks_active' },
+    { label: 'Tasks (total)',         key: 'tasks_total' },
+    { label: 'Goals (active)',        key: 'goals_active' },
+    { label: 'Habits (active)',       key: 'habits_active' },
+    { label: 'Habit Completions',     key: 'habit_completions' },
+    { label: 'Calendar Events (active)', key: 'events_active' },
+    { label: 'AI Messages',           key: 'ai_messages' },
   ]
 
   return (
@@ -136,9 +137,9 @@ function DbStatsSection() {
       ) : (
         <div className="space-y-1">
           {rows.map(r => (
-            <div key={r.label} className="flex justify-between text-sm py-1 border-b border-slate-50">
+            <div key={r.key} className="flex justify-between text-sm py-1 border-b border-slate-50">
               <span className="text-slate-600">{r.label}</span>
-              <span className="font-medium text-slate-900">{r.value}</span>
+              <span className="font-medium text-slate-900">{stats?.[r.key] ?? 0}</span>
             </div>
           ))}
         </div>
@@ -186,7 +187,7 @@ function GoogleCalendarSection() {
     try {
       const result = await calendar.sync()
       qc.invalidateQueries({ queryKey: ['events'] })
-      toast.success(`Synced ${result.synced} events`)
+      toast.success(`Synced ${result.total_fetched} events`)
     } catch {
       toast.error('Sync failed — ensure Google Calendar is connected')
     } finally {

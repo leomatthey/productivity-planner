@@ -224,11 +224,17 @@ export const calendar = {
   status: () =>
     get<GoogleCalendarStatus>('/calendar/status'),
 
+  listCalendars: () =>
+    get<{ id: string; summary: string; primary: boolean; backgroundColor: string }[]>('/calendar/list'),
+
   authUrl: (redirect_uri: string) =>
     get<{ url: string }>(`/calendar/auth-url?redirect_uri=${encodeURIComponent(redirect_uri)}`),
 
+  syncAll: () =>
+    post<{ calendars_synced: number; total_fetched: number; created: number; updated: number; stale_marked: number }>('/calendar/sync-all', {}),
+
   sync: (calendar_id = 'primary') =>
-    post<{ synced: number }>(`/calendar/sync/${calendar_id}`, {}),
+    post<{ calendar_id: string; total_fetched: number; created: number; updated: number; stale_marked: number }>(`/calendar/sync/${calendar_id}`, {}),
 
   disconnect: () =>
     del('/calendar/disconnect'),
@@ -276,7 +282,6 @@ export const ai = {
 // Analytics
 // ---------------------------------------------------------------------------
 
-/** Legacy shape — kept for any component that still references it. */
 export interface DbStats {
   tasks_total: number
   tasks_active: number
@@ -290,110 +295,99 @@ export interface DbStats {
   ai_messages: number
 }
 
-// Rich aggregated stats returned by GET /api/analytics/stats (Sprint 4)
-export interface WeekStat {
-  week: string
-  total: number
-  completed: number
-  rate: number
-}
-
-export interface HabitStat {
-  id: number
-  title: string
-  completion_rate_30d: number
-  completions_30d: number
-  streak_current: number
-  streak_best: number
-  best_day_of_week: string | null
-}
-
-export interface AnalyticsStats {
-  tasks: {
-    total: number
-    completed: number
-    in_progress: number
-    todo: number
-    cancelled: number
-    overdue: number
-    completion_rate: number
-    completion_by_week: WeekStat[]
-    avg_completion_hours: number
-    priority_breakdown: Record<string, number>
-    tag_breakdown: Record<string, number>
-  }
-  habits: {
-    habits: HabitStat[]
-    total_active: number
-  }
-  goals: {
-    total: number
-    completed: number
-    in_progress: number
-    paused: number
-    avg_progress_pct: number
-    progress_distribution: Record<string, number>
-  }
-  calendar: {
-    total_events: number
-    by_type: Record<string, number>
-    busiest_days: { day: string; count: number }[]
-    busiest_hours: { hour: number; count: number }[]
-  }
-}
-
-// LLM insights response schema (POST /api/analytics/insights)
-export type InsightTrend = 'up' | 'down' | 'neutral'
-export type InsightSeverity = 'positive' | 'neutral' | 'warning'
-export type InsightPriority = 'high' | 'medium' | 'low'
-
-/**
- * Metric keys returned by Claude — each key maps 1-to-1 to a chart card
- * so the frontend can add a visual ring highlight driven by LLM output.
- */
 export type InsightMetricKey =
   | 'task_completion_rate'
-  | 'habit_completion_rate'
-  | 'goal_progress'
-  | 'overdue_tasks'
   | 'tasks_this_week'
+  | 'overdue_tasks'
+  | 'habit_completion_rate'
   | 'top_habit_streak'
+  | 'goal_progress'
 
 export interface InsightHighlight {
   metric: InsightMetricKey
   value: string
-  trend: InsightTrend
+  trend: 'up' | 'down' | 'neutral'
   insight: string
 }
 
 export interface InsightPattern {
   title: string
   description: string
-  severity: InsightSeverity
+  severity: 'positive' | 'neutral' | 'warning'
 }
 
 export interface InsightRecommendation {
   action: string
   rationale: string
-  priority: InsightPriority
-}
-
-export interface InsightFocusSuggestion {
-  area: string
-  reason: string
+  priority: 'high' | 'medium' | 'low'
 }
 
 export interface AnalyticsInsights {
+  summary: string
   highlights: InsightHighlight[]
   patterns: InsightPattern[]
   recommendations: InsightRecommendation[]
-  focus_suggestion: InsightFocusSuggestion
+  focus_suggestion: { area: string; reason: string }
+}
+
+// Full analytics stats shape returned by /analytics/full
+export interface AnalyticsTaskStats {
+  total: number
+  completed: number
+  in_progress: number
+  todo: number
+  cancelled: number
+  overdue: number
+  completion_rate: number
+  completion_by_week: { week: string; total: number; completed: number }[]
+  avg_completion_hours: number
+  priority_breakdown: Record<string, number>
+  tag_breakdown: Record<string, number>
+}
+
+export interface AnalyticsHabitEntry {
+  id: number
+  title: string
+  completion_rate_30d: number
+  streak_current: number
+  streak_best: number
+}
+
+export interface AnalyticsHabitStats {
+  habits: AnalyticsHabitEntry[]
+  total_active: number
+}
+
+export interface AnalyticsGoalStats {
+  total: number
+  completed: number
+  in_progress: number
+  paused: number
+  avg_progress_pct: number
+  progress_distribution: Record<string, number>
+}
+
+export interface AnalyticsCalendarStats {
+  total_events: number
+  by_type: Record<string, number>
+  busiest_days: { day: string; count: number }[]
+  busiest_hours: { hour: number; count: number }[]
+}
+
+export interface AnalyticsStats {
+  tasks: AnalyticsTaskStats
+  habits: AnalyticsHabitStats
+  goals: AnalyticsGoalStats
+  calendar: AnalyticsCalendarStats
 }
 
 export const analytics = {
-  stats: () => get<AnalyticsStats>('/analytics/stats'),
+  /** Flat DB stats used by Settings page */
+  stats: () => get<DbStats>('/analytics/stats'),
+  /** Full nested analytics used by Analytics page */
+  full: () => get<AnalyticsStats>('/analytics/full'),
   insights: (stats: AnalyticsStats) =>
-    post<AnalyticsInsights>('/analytics/insights', { stats }),
+    post<AnalyticsInsights>('/analytics/insights', stats),
 }
 
 // ---------------------------------------------------------------------------
