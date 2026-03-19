@@ -56,11 +56,17 @@ function getEventColor(
   if (event.source === 'google' && event.google_calendar_id && calendarColors[event.google_calendar_id]) {
     return calendarColors[event.google_calendar_id]
   }
-  if (event.event_type === 'task_block' && event.task_id) {
-    const task = tasksList.find(t => t.id === event.task_id)
-    if (task?.project_id !== undefined) {
-      return getProjectColor(task.project_id, projectsList)
+  if (event.event_type === 'task_block') {
+    if (event.task_id) {
+      const task = tasksList.find(t => t.id === event.task_id)
+      if (task) {
+        if (task.project_id != null) {
+          return getProjectColor(task.project_id, projectsList)
+        }
+        return '#4F46E5' // task exists but has no project — indigo
+      }
     }
+    return '#6366F1' // task_block with no task linked — slate-indigo
   }
   return EVENT_COLOURS[event.event_type] ?? '#94A3B8'
 }
@@ -653,6 +659,7 @@ export function Calendar() {
         event_type:     data.event_type,
         location:       data.location,
         description:    data.description,
+        task_id:        data.task_id,
       })
     }
   }

@@ -710,11 +710,14 @@ _SUGGEST_SCHEDULE: dict = {
     "name": "suggest_schedule",
     "description": (
         "Generate a suggested time-block schedule for a given day using all pending or "
-        "in-progress tasks that have estimated_minutes set. "
-        "Slots occupied by existing calendar events are skipped automatically. "
-        "High-energy tasks are placed in the morning, low-energy tasks in the afternoon. "
-        "Returns a list of proposed time blocks — call update_task (scheduled_at) and/or "
-        "create_event to actually apply the schedule."
+        "in-progress tasks that have an estimated_minutes set. "
+        "Respects existing calendar events AND already-scheduled tasks as busy time. "
+        "Returns a list of proposed time blocks. "
+        "IMPORTANT: after calling this tool, you MUST apply the schedule by calling "
+        "BOTH update_task (to set scheduled_at) AND create_event (event_type='task_block', "
+        "task_id=<id>) for EVERY slot returned. Never skip create_event — without it the "
+        "calendar will not reflect the schedule and future scheduling calls will "
+        "double-book the same slot."
     ),
     "input_schema": {
         "type": "object",
@@ -1024,17 +1027,32 @@ def _exec_suggest_schedule(args: dict) -> dict:
     # Busy intervals from existing calendar events (in minutes since midnight)
     day_start = datetime.combine(target_date, time_.min)
     day_end   = datetime.combine(target_date, time_.max)
-    events    = crud.get_events(start=day_start, end=day_end)
+    events    = crud.get_events(start=day_start, end=day_end, include_stale=True)
 
     work_start_min = start_hour * 60
     work_end_min   = end_hour   * 60
 
     raw_busy = []
+    # 1. Busy from calendar events — include stale so Google events are never missed
     for e in events:
         e_s = e.start_datetime.hour * 60 + e.start_datetime.minute
         e_e = e.end_datetime.hour   * 60 + e.end_datetime.minute
         if e_e > work_start_min and e_s < work_end_min:
             raw_busy.append((max(e_s, work_start_min), min(e_e, work_end_min)))
+
+    # 2. Busy from tasks already scheduled on this day — prevents double-booking
+    all_tasks_for_busy = crud.get_tasks()
+    for t in all_tasks_for_busy:
+        if not t.scheduled_at:
+            continue
+        if t.scheduled_at.date() != target_date:
+            continue
+        if not t.estimated_minutes or t.estimated_minutes <= 0:
+            continue
+        t_s = t.scheduled_at.hour * 60 + t.scheduled_at.minute
+        t_e = t_s + t.estimated_minutes
+        if t_e > work_start_min and t_s < work_end_min:
+            raw_busy.append((max(t_s, work_start_min), min(t_e, work_end_min)))
 
     raw_busy.sort()
 

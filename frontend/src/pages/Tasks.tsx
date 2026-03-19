@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { tasks, calendar as calendarApi, projects as projectsApi } from '../lib/api'
 import { getProjectColor } from '../lib/colors'
-import { scheduleBatch, type ScheduledTask } from '../lib/scheduling'
+import { scheduleBatch, findTopSlots, type ScheduledTask } from '../lib/scheduling'
 import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, UpdateTaskRequest } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -26,6 +26,18 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
 const PRIORITY_ORDER: Priority[] = ['urgent', 'high', 'medium', 'low']
 const STATUS_ORDER: TaskStatus[] = ['todo', 'in_progress', 'done', 'cancelled']
 const ENERGY_LEVELS: EnergyLevel[] = ['low', 'medium', 'high']
+
+const DURATION_OPTIONS = [
+  { label: '5 min',     value: 5   },
+  { label: '15 min',    value: 15  },
+  { label: '30 min',    value: 30  },
+  { label: '45 min',    value: 45  },
+  { label: '1 hour',    value: 60  },
+  { label: '1.5 hours', value: 90  },
+  { label: '2 hours',   value: 120 },
+  { label: '3 hours',   value: 180 },
+  { label: '4 hours',   value: 240 },
+] as const
 
 const EVENT_COLOURS: Record<string, string> = {
   meeting: '#3B82F6', personal: '#8B5CF6', reminder: '#F59E0B',
@@ -210,6 +222,15 @@ function TaskRow({ task, projectsList, onToggle, onSelect, onDelete }: TaskRowPr
         <span className="text-xs text-slate-400 hidden md:inline shrink-0">{task.due_date}</span>
       )}
 
+      {/* Est. Duration */}
+      {task.estimated_minutes && (
+        <span className="text-xs text-slate-400 hidden md:inline shrink-0">
+          {task.estimated_minutes < 60
+            ? `${task.estimated_minutes}m`
+            : `${task.estimated_minutes / 60}h`}
+        </span>
+      )}
+
       {/* Status badge */}
       <span className={`${statusClass(task.status as TaskStatus)} hidden sm:inline-flex shrink-0`}>
         {STATUS_LABELS[task.status as TaskStatus]}
@@ -223,6 +244,55 @@ function TaskRow({ task, projectsList, onToggle, onSelect, onDelete }: TaskRowPr
       >
         <Trash2 size={14} />
       </button>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// SlotDayPreview — Mini day timeline for proposed slot
+// ---------------------------------------------------------------------------
+
+// Mini day timeline showing where a proposed slot falls — used inside TaskDetailModal
+function SlotDayPreview({ slot, events }: { slot: ScheduledTask; events: CalendarEvent[] }) {
+  const dateStr = slot.start.toISOString().slice(0, 10)
+  const dayEvents = events.filter(e =>
+    toUTCSafe(e.start_datetime).toISOString().slice(0, 10) === dateStr,
+  )
+
+  return (
+    <div
+      className="relative mt-1.5 border border-slate-100 dark:border-slate-700 rounded overflow-hidden bg-slate-50 dark:bg-slate-900"
+      style={{ height: `${(WORK_END_H - WORK_START_H) * HOUR_HEIGHT}px` }}
+    >
+      {HOUR_LABELS.map((label, i) => (
+        <div
+          key={i}
+          className="absolute left-0 right-0 border-t border-slate-100 dark:border-slate-800 flex items-start"
+          style={{ top: `${i * HOUR_HEIGHT}px` }}
+        >
+          <span className="text-[8px] text-slate-300 pl-0.5 leading-none">{label}</span>
+        </div>
+      ))}
+      {dayEvents.map(ev => {
+        const s   = toUTCSafe(ev.start_datetime)
+        const e   = toUTCSafe(ev.end_datetime)
+        const sty = getSlotStyle(s, e)
+        return (
+          <div
+            key={ev.id}
+            className="absolute rounded text-[8px] text-white px-0.5 overflow-hidden leading-tight"
+            style={{ ...sty, left: '22px', right: '2px', backgroundColor: EVENT_COLOURS[ev.event_type] ?? '#94A3B8' }}
+          >
+            {ev.title}
+          </div>
+        )
+      })}
+      <div
+        className="absolute rounded text-[8px] text-primary-700 dark:text-primary-300 px-0.5 overflow-hidden leading-tight border border-primary-300"
+        style={{ ...getSlotStyle(slot.start, slot.end), left: '22px', right: '2px', backgroundColor: 'rgba(79,70,229,0.18)' }}
+      >
+        ✓ {slot.title}
+      </div>
     </div>
   )
 }
@@ -249,6 +319,9 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
   const [estimatedMins, setEstMins]   = useState<number | undefined>()
   const [energyLevel, setEnergy]      = useState<EnergyLevel | undefined>()
   const [scheduledAt, setScheduledAt] = useState<string | undefined>()
+  const [proposals, setProposals]     = useState<ScheduledTask[]>([])
+
+  const qc = useQueryClient()
 
   const { data: projectsList = [] } = useQuery({
     queryKey: ['projects'],
@@ -257,9 +330,15 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
   })
 
   const { data: events = [] } = useQuery({
-    queryKey: ['events'],
-    queryFn: () => calendarApi.events(),
+    queryKey: ['events-scheduling'],
+    queryFn: () => calendarApi.events({ include_stale: true }),
     enabled: open,
+  })
+
+  const createCalendarEvent = useMutation({
+    mutationFn: (body: Parameters<typeof calendarApi.createEvent>[0]) =>
+      calendarApi.createEvent(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   })
 
   useEffect(() => {
@@ -274,18 +353,35 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
       setEstMins(task.estimated_minutes)
       setEnergy(task.energy_level as EnergyLevel | undefined)
       setScheduledAt(task.scheduled_at)
+      setProposals([])
     }
   }, [task, open])
 
-  function handleAutoSchedule() {
+  function handleFindSlots() {
     if (!task) return
     const taskForSchedule: Task = { ...task, estimated_minutes: estimatedMins ?? task.estimated_minutes }
-    const result = scheduleBatch([taskForSchedule], events, new Date())
-    if (result.length > 0) {
-      setScheduledAt(result[0].start.toISOString())
-      toast.success(`Scheduled for ${result[0].start.toLocaleString()}`)
+    const results = findTopSlots(taskForSchedule, events, new Date())
+    if (results.length === 0) {
+      toast.error('No free slots found in the next 14 days')
     } else {
-      toast.error('No free slots found in the next 7 days')
+      setProposals(results)
+    }
+  }
+
+  async function handleApprove(proposal: ScheduledTask) {
+    setScheduledAt(proposal.start.toISOString())
+    setProposals([])
+    try {
+      await createCalendarEvent.mutateAsync({
+        title:          task!.title,
+        start_datetime: proposal.start.toISOString(),
+        end_datetime:   proposal.end.toISOString(),
+        event_type:     'task_block',
+        task_id:        task!.id,
+      })
+      toast.success('Slot accepted — calendar event created')
+    } catch {
+      toast.error('Slot set but calendar event failed')
     }
   }
 
@@ -293,15 +389,15 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
     if (!task) return
     onSave(task.id, {
       title,
-      description: description || undefined,
+      description:       description || undefined,
       status,
       priority,
-      due_date: dueDate || undefined,
-      tags: tags || undefined,
-      project_id: projectId,
+      due_date:          dueDate || undefined,
+      tags:              tags || undefined,
+      project_id:        projectId,
       estimated_minutes: estimatedMins,
-      energy_level: energyLevel,
-      scheduled_at: scheduledAt,
+      energy_level:      energyLevel,
+      scheduled_at:      scheduledAt,
       current_updated_at: task.updated_at,
     })
     onClose()
@@ -312,16 +408,17 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
         weekday: 'short', month: 'short', day: 'numeric',
         hour: '2-digit', minute: '2-digit',
       })
-    : 'Not scheduled'
+    : null
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
-      <DialogContent className="max-w-2xl">
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Edit Task</DialogTitle>
         </DialogHeader>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
-          {/* Left column */}
+
+          {/* ── Left column — core fields ── */}
           <div className="space-y-4">
             <div>
               <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Title</label>
@@ -331,6 +428,32 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
               <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Description</label>
               <Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} className="mt-1" />
             </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Project</label>
+              <Select
+                value={projectId !== undefined ? String(projectId) : '__none__'}
+                onValueChange={v => setProjectId(v === '__none__' ? undefined : Number(v))}
+              >
+                <SelectTrigger className="mt-1 h-8"><SelectValue placeholder="No project" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">No project</SelectItem>
+                  {projectsList.map(p => (
+                    <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                <Tag size={11} /> Tags
+                <span className="text-slate-300 font-normal normal-case">(comma-separated)</span>
+              </label>
+              <Input value={tags} onChange={e => setTags(e.target.value)} placeholder="work, urgent" className="mt-1" />
+            </div>
+          </div>
+
+          {/* ── Right column — attributes + scheduling ── */}
+          <div className="space-y-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
@@ -353,49 +476,28 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
                 </Select>
               </div>
             </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
-                <Calendar size={11} /> Due Date
-              </label>
-              <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1 h-8" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
-                <Tag size={11} /> Tags
-                <span className="text-slate-300 font-normal normal-case">(comma-separated)</span>
-              </label>
-              <Input value={tags} onChange={e => setTags(e.target.value)} placeholder="work, urgent" className="mt-1" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Project</label>
-              <Select
-                value={projectId !== undefined ? String(projectId) : '__none__'}
-                onValueChange={v => setProjectId(v === '__none__' ? undefined : Number(v))}
-              >
-                <SelectTrigger className="mt-1 h-8"><SelectValue placeholder="No project" /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">No project</SelectItem>
-                  {projectsList.map(p => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
-
-          {/* Right column — Scheduling */}
-          <div className="space-y-4">
-            <div className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Scheduling</div>
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Estimated (min)</label>
-              <Input
-                type="number"
-                min={0}
-                value={estimatedMins ?? ''}
-                onChange={e => setEstMins(e.target.value ? Number(e.target.value) : undefined)}
-                placeholder="30"
-                className="mt-1 h-8"
-              />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
+                  <Calendar size={11} /> Due Date
+                </label>
+                <Input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)} className="mt-1 h-8" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Est. Duration</label>
+                <Select
+                  value={estimatedMins !== undefined ? String(estimatedMins) : '__none__'}
+                  onValueChange={v => setEstMins(v === '__none__' ? undefined : Number(v))}
+                >
+                  <SelectTrigger className="mt-1 h-8"><SelectValue placeholder="None" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">None</SelectItem>
+                    {DURATION_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={String(o.value)}>{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div>
               <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Energy Level</label>
@@ -410,20 +512,69 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
                 </SelectContent>
               </Select>
             </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Scheduled At</label>
-              <p className="mt-1 text-sm text-slate-600 dark:text-slate-400 px-2 py-1.5 bg-slate-50 dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 min-h-[32px] flex items-center">
-                {scheduledDisplay}
-              </p>
+
+            {/* ── Scheduling ── */}
+            <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Schedule</span>
+                {scheduledDisplay && (
+                  <span className="text-xs text-primary-600 dark:text-primary-400">{scheduledDisplay}</span>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={handleFindSlots}
+                disabled={createCalendarEvent.isPending}
+              >
+                Find 3 Time Slots
+              </Button>
+              {proposals.length > 0 && (
+                <div className="space-y-2 mt-1">
+                  {proposals.map((p, i) => {
+                    const dateLabel = p.start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+                    const timeLabel = `${p.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${p.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                    return (
+                      <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2 space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{dateLabel}</div>
+                            <div className="text-xs text-slate-500">{timeLabel}</div>
+                          </div>
+                          <div className="flex items-center gap-1 shrink-0">
+                            <Button
+                              size="sm"
+                              className="h-6 text-xs px-2"
+                              onClick={() => handleApprove(p)}
+                              disabled={createCalendarEvent.isPending}
+                            >
+                              Accept
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 text-xs px-2"
+                              onClick={() => setProposals(prev => prev.filter((_, idx) => idx !== i))}
+                            >
+                              ✕
+                            </Button>
+                          </div>
+                        </div>
+                        <SlotDayPreview slot={p} events={events} />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-            <Button variant="outline" className="w-full" onClick={handleAutoSchedule}>
-              Auto-Schedule
-            </Button>
-            <div className="pt-4 space-y-2 border-t border-slate-100 dark:border-slate-700">
+
+            <div className="pt-2 space-y-2 border-t border-slate-100 dark:border-slate-700">
               <Button onClick={handleSave} className="w-full">Save</Button>
               <Button variant="outline" onClick={onClose} className="w-full">Cancel</Button>
             </div>
           </div>
+
         </div>
       </DialogContent>
     </Dialog>
@@ -494,6 +645,13 @@ function KanbanCard({ task, projectsList, onSelect }: {
       <div className="flex items-center gap-2 flex-wrap">
         <span className={priorityClass(task.priority as Priority)}>{task.priority}</span>
         {task.due_date && <span className="text-xs text-slate-400">{task.due_date}</span>}
+        {task.estimated_minutes && (
+          <span className="text-xs text-slate-400">
+            {task.estimated_minutes < 60
+              ? `${task.estimated_minutes}m`
+              : `${task.estimated_minutes / 60}h`}
+          </span>
+        )}
       </div>
     </div>
   )
@@ -551,6 +709,7 @@ function SmartSchedulePanel({ allTasks, events }: {
   const [open, setOpen]           = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [proposed, setProposed]   = useState<ScheduledTask[]>([])
+  const [rejectedIds, setRejectedIds] = useState<Set<number>>(new Set())
 
   const qc = useQueryClient()
 
@@ -558,6 +717,12 @@ function SmartSchedulePanel({ allTasks, events }: {
     mutationFn: ({ id, data }: { id: number; data: UpdateTaskRequest }) =>
       tasks.update(id, data),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
+  })
+
+  const createEvent = useMutation({
+    mutationFn: (body: Parameters<typeof calendarApi.createEvent>[0]) =>
+      calendarApi.createEvent(body),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   })
 
   const monday = useMemo(() => getMondayOfWeek(new Date()), [])
@@ -580,7 +745,7 @@ function SmartSchedulePanel({ allTasks, events }: {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-    setProposed([])
+    // Do NOT clear proposals here — only clear on generate/confirm
   }
 
   function handleSchedule() {
@@ -588,21 +753,31 @@ function SmartSchedulePanel({ allTasks, events }: {
     if (!toSchedule.length) { toast.error('Select at least one task'); return }
     const result = scheduleBatch(toSchedule, events, monday)
     setProposed(result)
+    setRejectedIds(new Set())
     if (result.length < toSchedule.length) {
       toast.warning(`Could only schedule ${result.length} of ${toSchedule.length} tasks`)
     }
   }
 
   async function handleConfirm() {
-    for (const slot of proposed) {
+    const toConfirm = proposed.filter(s => !rejectedIds.has(s.taskId))
+    if (toConfirm.length === 0) { toast.error('No accepted slots to confirm'); return }
+    for (const slot of toConfirm) {
       const task = allTasks.find(t => t.id === slot.taskId)
       await updateTask.mutateAsync({
-        id: slot.taskId,
+        id:   slot.taskId,
         data: { scheduled_at: slot.start.toISOString(), current_updated_at: task?.updated_at },
       })
+      await createEvent.mutateAsync({
+        title:          slot.title,
+        start_datetime: slot.start.toISOString(),
+        end_datetime:   slot.end.toISOString(),
+        event_type:     'task_block',
+      })
     }
-    toast.success(`Scheduled ${proposed.length} task${proposed.length !== 1 ? 's' : ''}`)
+    toast.success(`Confirmed ${toConfirm.length} task${toConfirm.length !== 1 ? 's' : ''}`)
     setProposed([])
+    setRejectedIds(new Set())
     setSelectedIds(new Set())
   }
 
@@ -642,25 +817,51 @@ function SmartSchedulePanel({ allTasks, events }: {
               {unscheduledTasks.length === 0 && (
                 <p className="text-sm text-slate-400">No unscheduled tasks</p>
               )}
-              {unscheduledTasks.map(t => (
-                <label
-                  key={t.id}
-                  className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.has(t.id)}
-                    onChange={() => toggleId(t.id)}
-                    className="rounded border-slate-300"
-                  />
-                  <span className="text-sm text-slate-700 dark:text-slate-300 truncate flex-1">
-                    {t.title}
-                  </span>
-                  {t.estimated_minutes && (
-                    <span className="text-xs text-slate-400 shrink-0">{t.estimated_minutes}m</span>
-                  )}
-                </label>
-              ))}
+              {unscheduledTasks.map(t => {
+                const proposedSlot = proposed.find(s => s.taskId === t.id)
+                const isRejected   = rejectedIds.has(t.id)
+                return (
+                  <label
+                    key={t.id}
+                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(t.id)}
+                      onChange={() => toggleId(t.id)}
+                      className="rounded border-slate-300"
+                    />
+                    <span className={`text-sm truncate flex-1 ${isRejected ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                      {t.title}
+                    </span>
+                    {t.estimated_minutes && !proposedSlot && (
+                      <span className="text-xs text-slate-400 shrink-0">{t.estimated_minutes}m</span>
+                    )}
+                    {proposedSlot && !isRejected && (
+                      <div className="flex items-center gap-1 shrink-0 ml-auto">
+                        <span className="text-[10px] text-primary-600 dark:text-primary-400">
+                          {proposedSlot.start.toLocaleDateString([], { weekday: 'short' })}{' '}
+                          {proposedSlot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                        <button
+                          type="button"
+                          title="Reject this slot"
+                          onClick={e => {
+                            e.preventDefault()
+                            setRejectedIds(prev => { const n = new Set(prev); n.add(t.id); return n })
+                          }}
+                          className="text-[10px] text-slate-400 hover:text-danger leading-none"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                    {isRejected && (
+                      <span className="text-[10px] text-slate-300 shrink-0">skipped</span>
+                    )}
+                  </label>
+                )
+              })}
             </div>
             <div className="flex flex-col gap-2 mt-4">
               <Button size="sm" onClick={handleSchedule} disabled={selectedIds.size === 0}>
@@ -671,9 +872,9 @@ function SmartSchedulePanel({ allTasks, events }: {
                   size="sm"
                   variant="outline"
                   onClick={handleConfirm}
-                  disabled={updateTask.isPending}
+                  disabled={updateTask.isPending || createEvent.isPending}
                 >
-                  {updateTask.isPending ? 'Saving…' : 'Confirm & Save'}
+                  {updateTask.isPending || createEvent.isPending ? 'Saving…' : 'Confirm & Save'}
                 </Button>
               )}
             </div>
@@ -785,16 +986,18 @@ export function Tasks() {
   const [sortBy, setSortBy]        = useState('created')
   const [groupBy, setGroupBy]      = useState<'status' | 'priority' | 'due_date'>('status')
   const [view, setView]            = useState<'list' | 'kanban'>('list')
+  const [filterProject, setFProject] = useState<string>('all')
   const [selected, setSelected]    = useState<Task | null>(null)
   const [modalOpen, setModalOpen]  = useState(false)
 
   const undoRef = useRef<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null)
 
   const { data: allTasks = [], isLoading } = useQuery({
-    queryKey: ['tasks', filterStatus, filterPriority],
+    queryKey: ['tasks', filterStatus, filterPriority, filterProject],
     queryFn: () => tasks.list({
-      status:   filterStatus   !== 'all' ? filterStatus   : undefined,
-      priority: filterPriority !== 'all' ? filterPriority : undefined,
+      status:     filterStatus   !== 'all' ? filterStatus             : undefined,
+      priority:   filterPriority !== 'all' ? filterPriority           : undefined,
+      project_id: filterProject  !== 'all' ? Number(filterProject)    : undefined,
     }),
   })
 
@@ -804,8 +1007,8 @@ export function Tasks() {
   })
 
   const { data: events = [] } = useQuery({
-    queryKey: ['events'],
-    queryFn: () => calendarApi.events(),
+    queryKey: ['events-scheduling'],
+    queryFn: () => calendarApi.events({ include_stale: true }),
   })
 
   const createTask = useMutation({
@@ -925,6 +1128,27 @@ export function Tasks() {
           <SelectContent>
             <SelectItem value="all">All priorities</SelectItem>
             {PRIORITY_ORDER.map(p => <SelectItem key={p} value={p}>{p}</SelectItem>)}
+          </SelectContent>
+        </Select>
+
+        <Select value={filterProject} onValueChange={setFProject}>
+          <SelectTrigger className="h-8 w-36 text-xs"><SelectValue placeholder="Project" /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All projects</SelectItem>
+            {projectsList.map(p => {
+              const dot = getProjectColor(p.id, projectsList)
+              return (
+                <SelectItem key={p.id} value={String(p.id)}>
+                  <span className="flex items-center gap-1.5">
+                    <span
+                      className="inline-block w-2 h-2 rounded-full shrink-0"
+                      style={{ backgroundColor: dot }}
+                    />
+                    {p.title}
+                  </span>
+                </SelectItem>
+              )
+            })}
           </SelectContent>
         </Select>
 

@@ -18,6 +18,7 @@ load_dotenv()
 
 from db.schema import db_init
 from routers import tasks, goals, habits, calendar, ai, analytics, preferences
+from utils.seed import seed_database
 
 
 @asynccontextmanager
@@ -29,6 +30,13 @@ async def lifespan(app: FastAPI):
         if "color" not in cols:
             conn.execute(text("ALTER TABLE goals ADD COLUMN color TEXT"))
             conn.commit()
+    # Seed demo data on first run (no-op if data already exists)
+    seed_database()
+    # Warn if AI features will be unavailable
+    if not os.environ.get("ANTHROPIC_API_KEY"):
+        print("\n⚠️  WARNING: ANTHROPIC_API_KEY is not set.")
+        print("   AI Assistant and Analytics Insights will not work.")
+        print("   Copy backend/.env.example to backend/.env and add your key.\n")
     yield
 
 

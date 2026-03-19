@@ -191,6 +191,7 @@ export interface EventFilters {
   start?: string
   end?: string
   source?: string
+  include_stale?: boolean
 }
 
 export interface UpdateEventRequest {

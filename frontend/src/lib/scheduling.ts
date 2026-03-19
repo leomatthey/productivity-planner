@@ -214,3 +214,53 @@ export function scheduleBatch(
 
   return results
 }
+
+/**
+ * Returns up to `count` (default 3) candidate ScheduledTask slots for a single task,
+ * searching across up to maxDaysAhead days from startDate.
+ * Takes at most one slot per day so proposals are spread across different days.
+ */
+export function findTopSlots(
+  task: Task,
+  events: CalendarEvent[],
+  startDate: Date,
+  count = 3,
+  opts: ScheduleBatchOptions = {},
+): ScheduledTask[] {
+  const {
+    maxDaysAhead   = 14,
+    skipWeekends   = false,
+    workdayStart   = 9,
+    workdayEnd     = 18,
+    bufferMinutes  = 15,
+    minSlotMinutes = 30,
+  } = opts
+
+  const slotOpts: FindFreeSlotsOptions = { workdayStart, workdayEnd, bufferMinutes, minSlotMinutes }
+  const needed = task.estimated_minutes ?? 30
+  const results: ScheduledTask[] = []
+
+  for (let i = 0; i < maxDaysAhead && results.length < count; i++) {
+    const d = new Date(startDate)
+    d.setDate(d.getDate() + i)
+    d.setHours(0, 0, 0, 0)
+    if (skipWeekends) {
+      const dow = d.getDay()
+      if (dow === 0 || dow === 6) continue
+    }
+    const slots = findFreeSlots(events, d, slotOpts)
+    for (const slot of slots) {
+      if (slot.durationMinutes >= needed) {
+        results.push({
+          taskId: task.id,
+          title:  task.title,
+          start:  new Date(slot.start),
+          end:    new Date(slot.start.getTime() + needed * 60_000),
+        })
+        break // one slot per day only — for variety
+      }
+    }
+  }
+
+  return results
+}

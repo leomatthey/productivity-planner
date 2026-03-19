@@ -98,6 +98,18 @@ export function generateShades(hex: string): { light: string; DEFAULT: string; d
   }
 }
 
+/**
+ * Returns a color for a sub-project derived from its parent's color.
+ * Each sibling index gets a progressively lighter shade with a small hue rotation.
+ */
+export function getSubProjectColor(parentColor: string, siblingIndex: number): string {
+  const { h, s, l } = hexToHSL(parentColor)
+  const newL = Math.min(l + 14 + siblingIndex * 10, 78)
+  const newS = Math.max(s * 0.72, 28)
+  const newH = (h + siblingIndex * 9) % 360
+  return hslToHex(newH, newS, newL)
+}
+
 // ---------------------------------------------------------------------------
 // Project colour lookup
 // ---------------------------------------------------------------------------

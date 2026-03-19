@@ -1,11 +1,25 @@
+# Environment / secrets
 .env
 .env.save
+backend/.env
+
+# Database & credentials
 data/
+backend/data/
+*.db
+
+# Python
 __pycache__/
 *.pyc
 *.pyo
+
+# OS
 .DS_Store
 .Rhistory
+
+# Claude Code internal
 .claude/
+
+# Project-specific ignores
 productivity_planner_spec_v2.1.docx
 .streamlit/secrets.toml

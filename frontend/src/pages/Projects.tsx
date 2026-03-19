@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { projects, tasks } from '../lib/api'
-import { PROJECT_COLORS } from '../lib/colors'
+import { PROJECT_COLORS, getSubProjectColor } from '../lib/colors'
 import type { Goal, GoalStatus, Task } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -54,7 +54,7 @@ function ProjectFormDialog({ open, onClose, onSave, initial }: ProjectFormProps)
   const [status, setStatus]       = useState<GoalStatus>('active')
   const [progressMode, setMode]   = useState<'manual' | 'auto'>('manual')
   const [progressPct, setPct]     = useState(0)
-  const [colour, setColour]       = useState(PROJECT_COLORS[0])
+  const [colour, setColour]       = useState<string>(PROJECT_COLORS[0])
 
   useEffect(() => {
     if (initial) {
@@ -198,15 +198,17 @@ function ProjectFormDialog({ open, onClose, onSave, initial }: ProjectFormProps)
 interface SubProjectRowProps {
   project: Goal
   linkedTasks: Task[]
+  parentColor: string
+  siblingIndex: number
   onEdit: (p: Goal) => void
   onToggle: (p: Goal) => void
   onDelete: (p: Goal) => void
 }
 
-function SubProjectRow({ project, linkedTasks, onEdit, onToggle, onDelete }: SubProjectRowProps) {
+function SubProjectRow({ project, linkedTasks, parentColor, siblingIndex, onEdit, onToggle, onDelete }: SubProjectRowProps) {
   const [expanded, setExpanded] = useState(false)
-  const done = project.status === 'completed'
-  const color = projectColorFor(project)
+  const done  = project.status === 'completed'
+  const color = getSubProjectColor(parentColor, siblingIndex)
 
   return (
     <div className="border border-slate-100 dark:border-slate-700 rounded-md mt-2 overflow-hidden">
@@ -317,14 +319,17 @@ interface ProjectCardProps {
   onToggleSubProject: (p: Goal) => void
   onDeleteSubProject: (p: Goal) => void
   onEditSubProject: (p: Goal) => void
+  onAddTask: (projectId: number, title: string) => void
 }
 
 function ProjectCard({
   project, subProjects, linkedTasks, allTasks,
   onEdit, onDelete, onAddSubProject,
-  onToggleSubProject, onDeleteSubProject, onEditSubProject,
+  onToggleSubProject, onDeleteSubProject, onEditSubProject, onAddTask,
 }: ProjectCardProps) {
   const [expanded, setExpanded] = useState(false)
+  const [quickTitle, setQuickTitle]     = useState('')
+  const [showQuickAdd, setShowQuickAdd] = useState(false)
   const color = projectColorFor(project)
 
   return (
@@ -429,6 +434,49 @@ function ProjectCard({
             </div>
           )}
 
+          {/* Quick add task */}
+          <div className="mb-3">
+            {showQuickAdd ? (
+              <form
+                onSubmit={e => {
+                  e.preventDefault()
+                  if (quickTitle.trim()) {
+                    onAddTask(project.id, quickTitle.trim())
+                    setQuickTitle('')
+                    setShowQuickAdd(false)
+                  }
+                }}
+                className="flex gap-1 items-center"
+              >
+                <Input
+                  autoFocus
+                  value={quickTitle}
+                  onChange={e => setQuickTitle(e.target.value)}
+                  placeholder="Task title…"
+                  className="h-7 text-xs flex-1"
+                />
+                <Button type="submit" size="sm" className="h-7 text-xs px-2">Add</Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs px-2"
+                  onClick={() => setShowQuickAdd(false)}
+                >
+                  ✕
+                </Button>
+              </form>
+            ) : (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); setShowQuickAdd(true) }}
+                className="flex items-center gap-1 px-2 py-1 text-xs text-slate-400 hover:text-primary transition-colors"
+              >
+                <Plus size={11} /> Add task to project
+              </button>
+            )}
+          </div>
+
           {/* Sub-projects */}
           <div>
             <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">
@@ -437,11 +485,13 @@ function ProjectCard({
             {subProjects.length === 0 ? (
               <p className="text-xs text-slate-400 px-2">No sub-projects yet</p>
             ) : (
-              subProjects.map(sp => (
+              subProjects.map((sp, i) => (
                 <SubProjectRow
                   key={sp.id}
                   project={sp}
                   linkedTasks={allTasks.filter(t => t.project_id === sp.id)}
+                  parentColor={color}
+                  siblingIndex={i}
                   onEdit={onEditSubProject}
                   onToggle={onToggleSubProject}
                   onDelete={onDeleteSubProject}
@@ -512,6 +562,15 @@ export function Projects() {
       toast.success('Project deleted')
     },
     onError: () => toast.error('Failed to delete project'),
+  })
+
+  const createTask = useMutation({
+    mutationFn: (body: Parameters<typeof tasks.create>[0]) => tasks.create(body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      toast.success('Task added')
+    },
+    onError: () => toast.error('Failed to add task'),
   })
 
   function handleSave(data: Partial<Goal> & { color: string }, id?: number) {
@@ -591,6 +650,9 @@ export function Projects() {
               onToggleSubProject={handleToggleSubProject}
               onDeleteSubProject={p => deleteProject.mutate(p.id)}
               onEditSubProject={p => { setEditing(p); setFormOpen(true) }}
+              onAddTask={(projectId, title) =>
+                createTask.mutate({ title, project_id: projectId })
+              }
             />
           ))}
         </div>
