@@ -3,7 +3,7 @@ from contextlib import contextmanager
 from datetime import datetime
 
 from sqlalchemy import (
-    Boolean, Column, Date, DateTime, ForeignKey, Integer, Text, create_engine,
+    Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, create_engine,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
@@ -43,6 +43,7 @@ class Goal(Base):
     progress_pct   = Column(Integer, default=0)             # 0–100
     progress_mode  = Column(Text, default="manual")         # manual | auto
     parent_id      = Column(Integer, ForeignKey("goals.id"), nullable=True)
+    color          = Column(String, nullable=True)          # hex colour e.g. #4F46E5
     created_at     = Column(DateTime, default=datetime.utcnow)
     updated_at     = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     deleted_at     = Column(DateTime)

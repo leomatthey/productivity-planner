@@ -17,8 +17,10 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
-import { calendar } from '../lib/api'
-import type { CalendarEvent, EventType } from '../types'
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { calendar, tasks as tasksApi, projects as projectsApi } from '../lib/api'
+import { getProjectColor } from '../lib/colors'
+import type { CalendarEvent, EventType, Task, Goal } from '../types'
 
 // ---------------------------------------------------------------------------
 // react-big-calendar localizer
@@ -45,9 +47,20 @@ const EVENT_COLOURS: Record<string, string> = {
   google_import: '#94A3B8',
 }
 
-function getEventColor(event: CalendarEvent, calendarColors: Record<string, string>): string {
+function getEventColor(
+  event: CalendarEvent,
+  calendarColors: Record<string, string>,
+  tasksList: Task[] = [],
+  projectsList: Goal[] = [],
+): string {
   if (event.source === 'google' && event.google_calendar_id && calendarColors[event.google_calendar_id]) {
     return calendarColors[event.google_calendar_id]
+  }
+  if (event.event_type === 'task_block' && event.task_id) {
+    const task = tasksList.find(t => t.id === event.task_id)
+    if (task?.project_id !== undefined) {
+      return getProjectColor(task.project_id, projectsList)
+    }
   }
   return EVENT_COLOURS[event.event_type] ?? '#94A3B8'
 }
@@ -229,17 +242,19 @@ interface PopoverState {
   y: number
 }
 
-function EventPopover({ state, calendarColors, calendarNames, onClose, onEdit, onDelete }: {
+function EventPopover({ state, calendarColors, calendarNames, tasksList, projectsList, onClose, onEdit, onDelete }: {
   state: PopoverState
   calendarColors: Record<string, string>
   calendarNames: Record<string, string>
+  tasksList: Task[]
+  projectsList: Goal[]
   onClose: () => void
   onEdit: (event: CalendarEvent) => void
   onDelete: (event: CalendarEvent) => void
 }) {
   const ref = useRef<HTMLDivElement>(null)
   const { event, x, y } = state
-  const color = getEventColor(event, calendarColors)
+  const color = getEventColor(event, calendarColors, tasksList, projectsList)
 
   // Clamp to viewport
   const left = Math.min(x, window.innerWidth - 296)
@@ -355,14 +370,18 @@ function CalendarEventBlock({ event }: { event: BigCalEvent }) {
 // Event form dialog
 // ---------------------------------------------------------------------------
 
-function EventFormDialog({ open, onClose, onSave, initial, defaultStart }: {
+function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksList }: {
   open: boolean
   onClose: () => void
   onSave: (data: Partial<CalendarEvent>, id?: number) => void
   initial?: CalendarEvent | null
   defaultStart?: Date
+  tasksList: Task[]
 }) {
   const toLocal = (iso: string) => iso.slice(0, 16)
+
+  const [activeTab, setActiveTab] = useState('new')
+  const [selectedTaskId, setSelectedTaskId] = useState<string>('__none__')
 
   const [title, setTitle]       = useState('')
   const [start, setStart]       = useState('')
@@ -370,6 +389,7 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart }: {
   const [type, setType]         = useState<EventType>('personal')
   const [location, setLocation] = useState('')
   const [description, setDesc]  = useState('')
+  const [taskId, setTaskId]     = useState<number | undefined>()
 
   useEffect(() => {
     if (initial) {
@@ -379,14 +399,37 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart }: {
       setType(initial.event_type as EventType)
       setLocation(initial.location ?? '')
       setDesc(initial.description ?? '')
+      setTaskId(initial.task_id)
     } else {
       const base = defaultStart ?? new Date()
       const endDate = new Date(base); endDate.setHours(endDate.getHours() + 1)
-      setTitle(''); setType('personal'); setLocation(''); setDesc('')
+      setTitle(''); setType('personal'); setLocation(''); setDesc(''); setTaskId(undefined)
       setStart(base.toISOString().slice(0, 16))
       setEnd(endDate.toISOString().slice(0, 16))
     }
+    setActiveTab('new')
+    setSelectedTaskId('__none__')
   }, [initial, open, defaultStart])
+
+  function handleTaskSelect(value: string) {
+    setSelectedTaskId(value)
+    if (value === '__none__') return
+    const task = tasksList.find(t => t.id === Number(value))
+    if (!task) return
+    // Pre-fill form fields from task
+    setTitle(task.title)
+    setDesc(task.description ?? '')
+    setType('task_block')
+    setTaskId(task.id)
+    const base = task.scheduled_at ? new Date(task.scheduled_at) : (defaultStart ?? new Date())
+    base.setHours(9, 0, 0, 0)
+    const durationMs = (task.estimated_minutes ?? 60) * 60 * 1000
+    const endDate = new Date(base.getTime() + durationMs)
+    setStart(base.toISOString().slice(0, 16))
+    setEnd(endDate.toISOString().slice(0, 16))
+    // Switch to New Event tab so user can review
+    setActiveTab('new')
+  }
 
   function handleSave() {
     if (!title.trim()) { toast.error('Title is required'); return }
@@ -397,9 +440,59 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart }: {
       event_type:  type,
       location:    location || undefined,
       description: description || undefined,
+      task_id:     taskId,
     }, initial?.id)
     onClose()
   }
+
+  const activeTasks = tasksList.filter(t => !t.deleted_at && t.status !== 'done' && t.status !== 'cancelled')
+
+  const newEventForm = (
+    <div className="space-y-4 pt-2">
+      <div>
+        <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Title</label>
+        <Input value={title} onChange={e => setTitle(e.target.value)} className="mt-1" />
+      </div>
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
+            <Clock size={11} /> Start
+          </label>
+          <Input type="datetime-local" value={start} onChange={e => setStart(e.target.value)} className="mt-1 h-8" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">End</label>
+          <Input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} className="mt-1 h-8" />
+        </div>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Type</label>
+        <Select value={type} onValueChange={v => setType(v as EventType)}>
+          <SelectTrigger className="mt-1 h-8"><SelectValue /></SelectTrigger>
+          <SelectContent>
+            <SelectItem value="meeting">Meeting</SelectItem>
+            <SelectItem value="personal">Personal</SelectItem>
+            <SelectItem value="reminder">Reminder</SelectItem>
+            <SelectItem value="task_block">Task Block</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+      <div>
+        <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
+          <MapPin size={11} /> Location
+        </label>
+        <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="Optional" className="mt-1" />
+      </div>
+      <div>
+        <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Description</label>
+        <Textarea value={description} onChange={e => setDesc(e.target.value)} rows={2} className="mt-1" />
+      </div>
+      <div className="flex gap-2 pt-1">
+        <Button onClick={handleSave} className="flex-1">Save</Button>
+        <Button variant="outline" onClick={onClose}>Cancel</Button>
+      </div>
+    </div>
+  )
 
   return (
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
@@ -407,50 +500,43 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart }: {
         <DialogHeader>
           <DialogTitle>{initial ? 'Edit Event' : 'New Event'}</DialogTitle>
         </DialogHeader>
-        <div className="space-y-4 pt-2">
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Title</label>
-            <Input value={title} onChange={e => setTitle(e.target.value)} className="mt-1" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
-                <Clock size={11} /> Start
-              </label>
-              <Input type="datetime-local" value={start} onChange={e => setStart(e.target.value)} className="mt-1 h-8" />
-            </div>
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">End</label>
-              <Input type="datetime-local" value={end} onChange={e => setEnd(e.target.value)} className="mt-1 h-8" />
-            </div>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Type</label>
-            <Select value={type} onValueChange={v => setType(v as EventType)}>
-              <SelectTrigger className="mt-1 h-8"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="meeting">Meeting</SelectItem>
-                <SelectItem value="personal">Personal</SelectItem>
-                <SelectItem value="reminder">Reminder</SelectItem>
-                <SelectItem value="task_block">Task Block</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
-              <MapPin size={11} /> Location
-            </label>
-            <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="Optional" className="mt-1" />
-          </div>
-          <div>
-            <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Description</label>
-            <Textarea value={description} onChange={e => setDesc(e.target.value)} rows={2} className="mt-1" />
-          </div>
-          <div className="flex gap-2 pt-1">
-            <Button onClick={handleSave} className="flex-1">Save</Button>
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-          </div>
-        </div>
+        {initial ? (
+          newEventForm
+        ) : (
+          <Tabs value={activeTab} onValueChange={setActiveTab}>
+            <TabsList className="w-full">
+              <TabsTrigger value="new" className="flex-1">New Event</TabsTrigger>
+              <TabsTrigger value="from-task" className="flex-1">From Task</TabsTrigger>
+            </TabsList>
+            <TabsContent value="new">
+              {newEventForm}
+            </TabsContent>
+            <TabsContent value="from-task" className="pt-2">
+              <div className="space-y-3">
+                <p className="text-xs text-slate-500">
+                  Select a task to pre-fill the event form. You can then review and adjust on the New Event tab.
+                </p>
+                <div>
+                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Task</label>
+                  <Select value={selectedTaskId} onValueChange={handleTaskSelect}>
+                    <SelectTrigger className="mt-1"><SelectValue placeholder="Choose a task…" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">Choose a task…</SelectItem>
+                      {activeTasks.map(t => (
+                        <SelectItem key={t.id} value={String(t.id)}>
+                          {t.title}{t.estimated_minutes ? ` — ${t.estimated_minutes}min` : ''}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {activeTasks.length === 0 && (
+                  <p className="text-sm text-slate-400">No active tasks available.</p>
+                )}
+              </div>
+            </TabsContent>
+          </Tabs>
+        )}
       </DialogContent>
     </Dialog>
   )
@@ -484,6 +570,18 @@ export function Calendar() {
   const { data: calendarList = [] } = useQuery({
     queryKey: ['calendar-list'],
     queryFn:  calendar.listCalendars,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  const { data: tasksList = [] } = useQuery({
+    queryKey: ['tasks'],
+    queryFn:  () => tasksApi.list(),
+    staleTime: 60_000,
+  })
+
+  const { data: projectsList = [] } = useQuery({
+    queryKey: ['projects'],
+    queryFn:  () => projectsApi.list(),
     staleTime: 5 * 60 * 1000,
   })
 
@@ -588,7 +686,7 @@ export function Calendar() {
 
   // Event style
   const eventPropGetter = useCallback((e: BigCalEvent) => {
-    const colour = getEventColor(e.resource, calendarColors)
+    const colour = getEventColor(e.resource, calendarColors, tasksList, projectsList)
     return {
       style: {
         backgroundColor: colour,
@@ -598,7 +696,7 @@ export function Calendar() {
         padding: '1px 4px',
       },
     }
-  }, [calendarColors])
+  }, [calendarColors, tasksList, projectsList])
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-slate-900">
@@ -729,6 +827,8 @@ export function Calendar() {
           state={popover}
           calendarColors={calendarColors}
           calendarNames={calendarNames}
+          tasksList={tasksList}
+          projectsList={projectsList}
           onClose={() => setPopover(null)}
           onEdit={event => { setEditing(event); setFormOpen(true) }}
           onDelete={event => deleteEvent.mutate(event.id)}
@@ -742,6 +842,7 @@ export function Calendar() {
         onSave={handleSave}
         initial={editing}
         defaultStart={defStart}
+        tasksList={tasksList}
       />
     </div>
   )

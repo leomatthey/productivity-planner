@@ -103,7 +103,7 @@ export const tasks = {
 }
 
 // ---------------------------------------------------------------------------
-// Goals
+// Projects (internal DB table stays "goals"; API route is /api/projects)
 // ---------------------------------------------------------------------------
 
 export interface GoalFilters {
@@ -120,21 +120,22 @@ export interface UpdateGoalRequest {
   progress_pct?: number
   progress_mode?: string
   parent_id?: number
+  color?: string
   current_updated_at?: string
 }
 
-export const goals = {
+export const projects = {
   list: (filters: GoalFilters = {}) =>
-    get<Goal[]>(`/goals${buildQuery(filters as Record<string, string | number | boolean | undefined>)}`),
+    get<Goal[]>(`/projects${buildQuery(filters as Record<string, string | number | boolean | undefined>)}`),
 
   create: (body: CreateGoalRequest) =>
-    post<Goal>('/goals', body),
+    post<Goal>('/projects', body),
 
   update: (id: number, body: UpdateGoalRequest) =>
-    put<Goal>(`/goals/${id}`, body),
+    put<Goal>(`/projects/${id}`, body),
 
   delete: (id: number) =>
-    del(`/goals/${id}`),
+    del(`/projects/${id}`),
 }
 
 // ---------------------------------------------------------------------------

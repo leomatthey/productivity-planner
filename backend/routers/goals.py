@@ -28,6 +28,7 @@ class GoalOut(BaseModel):
     progress_pct:  int
     progress_mode: str
     parent_id:     Optional[int]
+    color:         Optional[str]
     created_at:    datetime
     updated_at:    datetime
     deleted_at:    Optional[datetime]
@@ -44,6 +45,7 @@ class CreateGoalRequest(BaseModel):
     progress_pct:  int            = 0
     progress_mode: str            = "manual"
     parent_id:     Optional[int]  = None
+    color:         Optional[str]  = None
 
 
 class UpdateGoalRequest(BaseModel):
@@ -54,6 +56,7 @@ class UpdateGoalRequest(BaseModel):
     progress_pct:       Optional[int]      = None
     progress_mode:      Optional[str]      = None
     parent_id:          Optional[int]      = None
+    color:              Optional[str]      = None
     current_updated_at: Optional[datetime] = None
 
 
@@ -84,6 +87,7 @@ def create_goal(body: CreateGoalRequest):
         progress_pct=body.progress_pct,
         progress_mode=body.progress_mode,
         parent_id=body.parent_id,
+        color=body.color,
     )
 
 

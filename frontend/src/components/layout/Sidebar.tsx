@@ -7,7 +7,7 @@ import {
 const navItems = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/tasks',     icon: CheckSquare,     label: 'Tasks' },
-  { to: '/goals',     icon: Target,          label: 'Goals' },
+  { to: '/projects',  icon: Target,          label: 'Projects' },
   { to: '/calendar',  icon: CalendarDays,    label: 'Calendar' },
   { to: '/habits',    icon: Repeat2,         label: 'Habits' },
   { to: '/ai',        icon: Bot,             label: 'AI Assistant' },

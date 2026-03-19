@@ -466,7 +466,7 @@ export function Analytics() {
             </div>
             <div className="metric-tile">
               <span className="metric-value">{stats.goals.total}</span>
-              <span className="metric-label">Goals</span>
+              <span className="metric-label">Projects</span>
             </div>
             <div className="metric-tile">
               <span className="metric-value">{stats.habits.total_active}</span>

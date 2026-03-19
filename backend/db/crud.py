@@ -169,6 +169,7 @@ def create_goal(
     progress_pct: int = 0,
     progress_mode: str = "manual",
     parent_id: Optional[int] = None,
+    color: Optional[str] = None,
 ) -> Goal:
     with get_session() as session:
         goal = Goal(
@@ -179,6 +180,7 @@ def create_goal(
             progress_pct=progress_pct,
             progress_mode=progress_mode,
             parent_id=parent_id,
+            color=color,
         )
         session.add(goal)
         session.flush()

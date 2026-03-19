@@ -12,6 +12,7 @@ from contextlib import asynccontextmanager
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy import text
 
 load_dotenv()
 
@@ -21,7 +22,13 @@ from routers import tasks, goals, habits, calendar, ai, analytics, preferences
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db_init(db_path=os.environ.get("DB_PATH", "./data/planner.db"))
+    engine, _ = db_init(db_path=os.environ.get("DB_PATH", "./data/planner.db"))
+    # Idempotent migration: add color column to goals table if missing
+    with engine.connect() as conn:
+        cols = [row[1] for row in conn.execute(text("PRAGMA table_info(goals)"))]
+        if "color" not in cols:
+            conn.execute(text("ALTER TABLE goals ADD COLUMN color TEXT"))
+            conn.commit()
     yield
 
 
@@ -40,7 +47,7 @@ app.add_middleware(
 )
 
 app.include_router(tasks.router,       prefix="/api/tasks",      tags=["tasks"])
-app.include_router(goals.router,       prefix="/api/goals",      tags=["goals"])
+app.include_router(goals.router,       prefix="/api/projects",   tags=["projects"])
 app.include_router(habits.router,      prefix="/api/habits",     tags=["habits"])
 app.include_router(calendar.router,    prefix="/api/calendar",   tags=["calendar"])
 app.include_router(ai.router,          prefix="/api/ai",         tags=["ai"])

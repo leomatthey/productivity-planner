@@ -37,12 +37,16 @@ export interface Goal {
   progress_pct: number
   progress_mode: ProgressMode
   parent_id?: number
+  color?: string
   created_at: string
   updated_at: string
   deleted_at?: string
   tasks?: Task[]
   subgoals?: Goal[]
 }
+
+// Alias — new code should use Project; internal DB table stays "goals"
+export type Project = Goal
 
 export interface CalendarEvent {
   id: number
@@ -122,6 +126,7 @@ export interface CreateGoalRequest {
   progress_pct?: number
   progress_mode?: ProgressMode
   parent_id?: number
+  color?: string
 }
 
 export interface CreateEventRequest {
