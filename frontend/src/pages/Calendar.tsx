@@ -608,6 +608,16 @@ export function Calendar() {
         {/* Top bar */}
         <header className="h-[56px] bg-white dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between px-4 shrink-0 z-10">
           <div className="flex items-center gap-1.5">
+            {!sidebarOpen && (
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="mr-1 flex items-center gap-1 text-xs font-medium text-slate-600 dark:text-slate-300 px-2 h-8 rounded border border-slate-200 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                title="Show sidebar"
+              >
+                <ChevronRight size={13} />
+                Calendars
+              </button>
+            )}
             <Button size="sm" variant="outline" onClick={() => setDate(new Date())} className="h-8 text-xs mr-1">
               Today
             </Button>
@@ -657,9 +667,21 @@ export function Calendar() {
         </header>
 
         {/* Two-panel body */}
-        <div className="flex flex-1 overflow-hidden min-h-0 relative">
+        <div className="flex flex-1 overflow-hidden min-h-0">
           {/* Left panel */}
-          <aside className={`flex flex-col overflow-y-auto shrink-0 bg-white dark:bg-slate-800 transition-[width] duration-200 ${sidebarOpen ? 'w-[220px] border-r border-slate-200 dark:border-slate-700' : 'w-0 overflow-hidden'}`}>
+          <aside className={`flex flex-col shrink-0 bg-white dark:bg-slate-800 transition-[width] duration-200 ${sidebarOpen ? 'w-[220px] border-r border-slate-200 dark:border-slate-700 overflow-y-auto' : 'w-0 overflow-hidden'}`}>
+            {/* Sidebar header with collapse button */}
+            <div className="h-10 flex items-center justify-between px-3 border-b border-slate-100 dark:border-slate-700 shrink-0">
+              <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide">Calendars</span>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-300 px-1.5 py-0.5 rounded hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                title="Hide sidebar"
+              >
+                <ChevronLeft size={13} />
+                <span>Hide</span>
+              </button>
+            </div>
             <MiniCalendar selectedDate={date} onSelectDate={setDate} />
             {calendarList.length > 0 && (
               <CalendarFilterList
@@ -669,16 +691,6 @@ export function Calendar() {
               />
             )}
           </aside>
-
-          {/* Sidebar toggle button — floats at the sidebar edge */}
-          <button
-            onClick={() => setSidebarOpen(o => !o)}
-            style={{ left: sidebarOpen ? '209px' : '4px' }}
-            className="absolute top-3 z-20 -translate-x-1/2 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-full w-6 h-6 flex items-center justify-center shadow-sm hover:bg-slate-50 dark:hover:bg-slate-700 transition-[left] duration-200"
-            title={sidebarOpen ? 'Hide sidebar' : 'Show sidebar'}
-          >
-            <ChevronLeft size={12} className={`text-slate-500 transition-transform duration-200 ${sidebarOpen ? '' : 'rotate-180'}`} />
-          </button>
 
           {/* Calendar grid */}
           <main className="flex-1 overflow-hidden min-w-0 p-0">
