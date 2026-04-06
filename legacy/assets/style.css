@@ -1,0 +1,342 @@
+/* Productivity Planner — design system
+   Theme: clean & minimal (Notion / Linear inspired)
+   Primary accent: #5B6CF8 (indigo) — set via config.toml
+   Injected by app.py on every render via st.markdown unsafe_allow_html. */
+
+/* ── CSS Variables ───────────────────────────────────────────────────────── */
+:root {
+    --accent:        #5B6CF8;
+    --accent-light:  #EEF0FE;
+    --accent-dim:    #A5AEFF;
+    --bg:            #FFFFFF;
+    --bg-secondary:  #F5F7FA;
+    --border:        #E8EAED;
+    --border-strong: #D1D5DB;
+    --text:          #1E2028;
+    --text-muted:    #6B7280;
+    --text-light:    #9CA3AF;
+    --success:       #16A34A;
+    --warning:       #D97706;
+    --error:         #DC2626;
+    --radius-sm:     4px;
+    --radius-md:     8px;
+    --radius-lg:     12px;
+    --shadow-sm:     0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    --shadow-md:     0 4px 12px rgba(0,0,0,0.08);
+    --transition:    0.15s ease;
+}
+
+/* ── Global Typography ───────────────────────────────────────────────────── */
+
+html, body, [class*="css"] {
+    font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Page heading (st.title) */
+h1 {
+    font-size: 1.6rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.5px !important;
+    color: var(--text) !important;
+    margin-bottom: 0.25rem !important;
+}
+
+/* Section heading (st.subheader) */
+h3 {
+    font-size: 1.0rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.01em !important;
+    color: var(--text) !important;
+}
+
+/* Smaller heading (st.header) */
+h2 {
+    font-size: 1.25rem !important;
+    font-weight: 700 !important;
+    letter-spacing: -0.3px !important;
+}
+
+/* ── Streamlit top bar ───────────────────────────────────────────────────── */
+
+[data-testid="stHeader"] {
+    background: var(--bg) !important;
+    border-bottom: 1px solid var(--border);
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────── */
+
+[data-testid="stSidebar"] {
+    min-width: 240px;
+    max-width: 270px;
+    background-color: var(--bg-secondary) !important;
+    border-right: 1px solid var(--border);
+}
+
+/* Nav items */
+[data-testid="stSidebarNavItems"] li a {
+    padding: 0.3rem 0.75rem;
+    border-radius: var(--radius-sm);
+    transition: background var(--transition);
+    font-size: 0.9rem;
+}
+
+[data-testid="stSidebarNavItems"] li a:hover {
+    background-color: rgba(91, 108, 248, 0.08);
+}
+
+/* Active nav item */
+[data-testid="stSidebarNavItems"] li a[aria-current="page"] {
+    background-color: var(--accent-light);
+    color: var(--accent) !important;
+    font-weight: 600;
+}
+
+/* ── Main content area ───────────────────────────────────────────────────── */
+
+[data-testid="stAppViewContainer"] > section.main {
+    padding-top: 1.5rem;
+}
+
+/* ── Metric cards ────────────────────────────────────────────────────────── */
+
+[data-testid="stMetric"] {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    padding: 0.75rem 1rem !important;
+}
+
+[data-testid="stMetric"] label {
+    font-size: 0.72rem !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.06em !important;
+    text-transform: uppercase;
+    color: var(--text-muted) !important;
+}
+
+[data-testid="stMetricValue"] {
+    font-size: 1.55rem !important;
+    font-weight: 700 !important;
+    color: var(--text) !important;
+    letter-spacing: -0.5px;
+}
+
+[data-testid="stMetricDelta"] {
+    font-size: 0.78rem !important;
+    color: var(--text-muted) !important;
+}
+
+/* ── Containers (st.container(border=True)) ──────────────────────────────── */
+
+[data-testid="stVerticalBlockBorderWrapper"] {
+    border-color: var(--border) !important;
+    border-radius: var(--radius-lg) !important;
+    box-shadow: var(--shadow-sm);
+    background: var(--bg);
+    padding: 0.1rem !important;
+}
+
+/* ── Expanders / Cards ───────────────────────────────────────────────────── */
+
+[data-testid="stExpander"] {
+    border: 1px solid var(--border) !important;
+    border-radius: var(--radius-md) !important;
+    background: var(--bg);
+    margin-bottom: 0.4rem;
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow var(--transition);
+    overflow: hidden;
+}
+
+[data-testid="stExpander"]:hover {
+    box-shadow: var(--shadow-md);
+    border-color: var(--border-strong) !important;
+}
+
+[data-testid="stExpander"] details summary {
+    padding: 0.5rem 0.75rem;
+}
+
+[data-testid="stExpander"] details summary p {
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
+[data-testid="stExpander"] details[open] summary {
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-secondary);
+}
+
+/* ── Progress bars ───────────────────────────────────────────────────────── */
+
+[data-testid="stProgressBar"] {
+    height: 6px !important;
+}
+
+[data-testid="stProgressBar"] > div {
+    height: 6px !important;
+    border-radius: 99px !important;
+    background-color: var(--border) !important;
+}
+
+[data-testid="stProgressBar"] > div > div {
+    border-radius: 99px !important;
+    background-color: var(--accent) !important;
+}
+
+/* ── Buttons ─────────────────────────────────────────────────────────────── */
+
+/* All buttons — clean base */
+button[kind], [data-testid*="stBaseButton"] {
+    border-radius: var(--radius-sm) !important;
+    font-weight: 500 !important;
+    transition: filter var(--transition), box-shadow var(--transition) !important;
+}
+
+/* Primary buttons */
+[data-testid="stBaseButton-primary"] {
+    box-shadow: 0 1px 3px rgba(91, 108, 248, 0.3) !important;
+}
+
+[data-testid="stBaseButton-primary"]:hover {
+    filter: brightness(1.08) !important;
+    box-shadow: 0 3px 8px rgba(91, 108, 248, 0.35) !important;
+}
+
+/* Secondary buttons */
+[data-testid="stBaseButton-secondary"] {
+    border-radius: var(--radius-sm) !important;
+}
+
+[data-testid="stBaseButton-secondary"]:hover {
+    background-color: var(--bg-secondary) !important;
+    border-color: var(--border-strong) !important;
+}
+
+/* ── Forms ───────────────────────────────────────────────────────────────── */
+
+[data-testid="stForm"] {
+    padding: 0.85rem 1rem !important;
+    border-radius: var(--radius-md) !important;
+    border-color: var(--border) !important;
+    background: var(--bg-secondary);
+}
+
+/* Input fields */
+[data-baseweb="input"] input,
+[data-baseweb="textarea"] textarea,
+[data-baseweb="select"] {
+    border-radius: var(--radius-sm) !important;
+    border-color: var(--border-strong) !important;
+    font-size: 0.9rem !important;
+}
+
+[data-baseweb="input"] input:focus,
+[data-baseweb="textarea"] textarea:focus {
+    border-color: var(--accent) !important;
+    box-shadow: 0 0 0 2px rgba(91, 108, 248, 0.18) !important;
+}
+
+/* Form field labels */
+[data-testid="stWidgetLabel"] p {
+    font-size: 0.82rem !important;
+    font-weight: 600 !important;
+    color: var(--text-muted) !important;
+    letter-spacing: 0.02em;
+}
+
+/* ── Chat messages ───────────────────────────────────────────────────────── */
+
+[data-testid="stChatMessage"] {
+    border-radius: var(--radius-md) !important;
+    margin-bottom: 0.4rem;
+    padding: 0.6rem 0.9rem !important;
+    border: 1px solid var(--border);
+}
+
+/* User messages — subtle indigo tint */
+[data-testid="stChatMessage"][data-testid*="user"],
+[data-testid="stChatMessageContent"][data-message-author-role="user"] {
+    background-color: var(--accent-light) !important;
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+
+[data-testid="stTabs"] [data-baseweb="tab-list"] {
+    border-bottom: 2px solid var(--border);
+    gap: 0;
+}
+
+[data-testid="stTabs"] [data-baseweb="tab"] {
+    font-size: 0.85rem !important;
+    font-weight: 500 !important;
+    padding: 0.35rem 0.75rem !important;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+}
+
+/* ── Captions / help text ────────────────────────────────────────────────── */
+
+[data-testid="stCaption"] p,
+small, .caption {
+    font-size: 0.78rem !important;
+    color: var(--text-muted) !important;
+}
+
+/* ── Alerts / callouts ───────────────────────────────────────────────────── */
+
+[data-testid="stAlert"] {
+    border-radius: var(--radius-md) !important;
+    border-left-width: 4px !important;
+    font-size: 0.88rem !important;
+}
+
+/* ── Dividers ────────────────────────────────────────────────────────────── */
+
+hr {
+    border-color: var(--border) !important;
+    margin: 1rem 0 !important;
+}
+
+/* ── Selectbox / multiselect ─────────────────────────────────────────────── */
+
+[data-baseweb="select"] > div {
+    border-radius: var(--radius-sm) !important;
+    border-color: var(--border-strong) !important;
+    font-size: 0.9rem !important;
+}
+
+/* Multiselect tags */
+[data-baseweb="tag"] {
+    border-radius: 99px !important;
+    font-size: 0.75rem !important;
+    background-color: var(--accent-light) !important;
+    color: var(--accent) !important;
+}
+
+/* ── Segmented control ───────────────────────────────────────────────────── */
+
+[data-testid="stSegmentedControl"] {
+    border-radius: var(--radius-md) !important;
+}
+
+/* ── Checkboxes ──────────────────────────────────────────────────────────── */
+
+[data-baseweb="checkbox"] {
+    font-size: 0.88rem !important;
+}
+
+/* ── Date / time inputs ──────────────────────────────────────────────────── */
+
+[data-baseweb="calendar"] {
+    border-radius: var(--radius-md) !important;
+}
+
+/* ── Spinner ─────────────────────────────────────────────────────────────── */
+
+[data-testid="stSpinner"] {
+    font-size: 0.88rem !important;
+    color: var(--text-muted) !important;
+}
