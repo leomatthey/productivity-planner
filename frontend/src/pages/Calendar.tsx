@@ -652,7 +652,7 @@ export function Calendar() {
 
   const deleteEvent = useMutation({
     mutationFn: (id: number) => calendar.deleteEvent(id),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); toast.success('Event deleted') },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['events'] }); qc.invalidateQueries({ queryKey: ['tasks'] }); toast.success('Event deleted') },
     onError:   () => toast.error('Failed to delete event'),
   })
 
