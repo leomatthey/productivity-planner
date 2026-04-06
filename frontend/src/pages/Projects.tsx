@@ -45,9 +45,11 @@ interface ProjectFormProps {
   onClose: () => void
   onSave: (data: Partial<Goal> & { color: string }, projectId?: number) => void
   initial?: Goal | null
+  parentId?: number | null
+  allProjects?: Goal[]
 }
 
-function ProjectFormDialog({ open, onClose, onSave, initial }: ProjectFormProps) {
+function ProjectFormDialog({ open, onClose, onSave, initial, parentId, allProjects = [] }: ProjectFormProps) {
   const [title, setTitle]         = useState('')
   const [description, setDesc]    = useState('')
   const [targetDate, setTgtDate]  = useState('')
@@ -68,9 +70,20 @@ function ProjectFormDialog({ open, onClose, onSave, initial }: ProjectFormProps)
     } else {
       setTitle(''); setDesc(''); setTgtDate('')
       setStatus('active'); setMode('manual'); setPct(0)
-      setColour(PROJECT_COLORS[0])
+      // Auto-derive color from parent for sub-projects
+      if (parentId) {
+        const parent = allProjects.find(p => p.id === parentId)
+        const siblings = allProjects.filter(p => p.parent_id === parentId && !p.deleted_at)
+        if (parent?.color) {
+          setColour(getSubProjectColor(parent.color, siblings.length))
+        } else {
+          setColour(PROJECT_COLORS[0])
+        }
+      } else {
+        setColour(PROJECT_COLORS[0])
+      }
     }
-  }, [initial, open])
+  }, [initial, open, parentId, allProjects])
 
   function handleSave() {
     if (!title.trim()) { toast.error('Title is required'); return }
@@ -165,7 +178,14 @@ function ProjectFormDialog({ open, onClose, onSave, initial }: ProjectFormProps)
           <div>
             <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Colour</label>
             <div className="flex gap-2 mt-1 flex-wrap">
-              {PROJECT_COLORS.map(c => (
+              {(parentId
+                ? (() => {
+                    const parent = allProjects.find(p => p.id === parentId)
+                    const baseColor = parent?.color ?? PROJECT_COLORS[0]
+                    return Array.from({ length: 6 }, (_, i) => getSubProjectColor(baseColor, i))
+                  })()
+                : [...PROJECT_COLORS]
+              ).map(c => (
                 <button
                   key={c}
                   type="button"
@@ -660,9 +680,11 @@ export function Projects() {
 
       <ProjectFormDialog
         open={formOpen}
-        onClose={() => { setFormOpen(false); setEditing(null) }}
+        onClose={() => { setFormOpen(false); setEditing(null); setParentForNew(null) }}
         onSave={handleSave}
         initial={editing}
+        parentId={parentForNew}
+        allProjects={allProjects}
       />
     </AppShell>
   )

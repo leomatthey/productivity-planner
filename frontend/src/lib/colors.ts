@@ -3,7 +3,7 @@
  * Used by Projects page, Tasks page (project chips), and Calendar (task_block events).
  */
 
-import type { Goal } from '../types'
+import type { Project } from '../types'
 
 // ---------------------------------------------------------------------------
 // Palette
@@ -21,6 +21,9 @@ export const PROJECT_COLORS = [
   '#F97316', // orange
   '#6366F1', // indigo-alt
 ] as const
+
+/** Alias used by spec v3 */
+export const PROJECT_PALETTE = PROJECT_COLORS
 
 // ---------------------------------------------------------------------------
 // Colour conversion helpers
@@ -118,9 +121,20 @@ export function getSubProjectColor(parentColor: string, siblingIndex: number): s
  * Returns the colour for a project by id. Uses the project's stored color field
  * if present; otherwise falls back to PROJECT_COLORS[id % palette.length].
  */
+/**
+ * Returns a hex color with the given opacity as an rgba string.
+ */
+export function colorWithOpacity(hex: string, opacity: number): string {
+  const clean = hex.replace('#', '')
+  const r = parseInt(clean.slice(0, 2), 16)
+  const g = parseInt(clean.slice(2, 4), 16)
+  const b = parseInt(clean.slice(4, 6), 16)
+  return `rgba(${r}, ${g}, ${b}, ${opacity})`
+}
+
 export function getProjectColor(
   projectId: number | undefined,
-  projects: Goal[],
+  projects: Project[],
 ): string {
   if (projectId === undefined) return PROJECT_COLORS[0]
   const project = projects.find(p => p.id === projectId)

@@ -6,6 +6,7 @@
  */
 
 import type { CalendarEvent, Task } from '../types'
+import { parseUTCDate } from './datetime'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -49,6 +50,7 @@ export interface ScheduleBatchOptions extends FindFreeSlotsOptions {
 /**
  * Returns all free time slots on a given calendar day.
  * Events that fall outside the workday are clamped to workday boundaries.
+ * For today, slots before the current time are excluded.
  */
 export function findFreeSlots(
   events: CalendarEvent[],
@@ -68,21 +70,32 @@ export function findFreeSlots(
   const dayEnd = new Date(date)
   dayEnd.setHours(workdayEnd, 0, 0, 0)
 
-  // Filter events that overlap this day
-  const dateStr = date.toISOString().slice(0, 10)
+  // Clamp dayStart to "now" for today — don't suggest past time slots
+  const now = new Date()
+  if (dayStart.toDateString() === now.toDateString() && now > dayStart) {
+    // Round up to next 15-minute mark for cleaner slot boundaries
+    const rounded = new Date(now)
+    const mins = rounded.getMinutes()
+    const roundUp = Math.ceil(mins / 15) * 15
+    rounded.setMinutes(roundUp, 0, 0)
+    dayStart.setTime(rounded.getTime())
+  }
+
+  // If the workday is already over for today, no slots available
+  if (dayStart >= dayEnd) return []
+
+  // Filter events that overlap the workday window using proper UTC parsing
   const dayEvents = events.filter(e => {
-    const evStart = new Date(e.start_datetime)
-    const evEnd   = new Date(e.end_datetime)
-    const evDate  = evStart.toISOString().slice(0, 10)
-    // Include events that start on this day or span into it
-    return evDate === dateStr || (evStart < dayEnd && evEnd > dayStart)
+    const evStart = parseUTCDate(e.start_datetime)
+    const evEnd   = parseUTCDate(e.end_datetime)
+    return evStart < dayEnd && evEnd > dayStart
   })
 
   // Build list of busy intervals (clamped to workday, with buffer)
   const busy: Array<{ start: Date; end: Date }> = dayEvents
     .map(e => {
-      const s = new Date(new Date(e.start_datetime).getTime() - bufferMinutes * 60_000)
-      const en = new Date(new Date(e.end_datetime).getTime() + bufferMinutes * 60_000)
+      const s = new Date(parseUTCDate(e.start_datetime).getTime() - bufferMinutes * 60_000)
+      const en = new Date(parseUTCDate(e.end_datetime).getTime() + bufferMinutes * 60_000)
       return {
         start: s < dayStart ? dayStart : s,
         end:   en > dayEnd  ? dayEnd   : en,

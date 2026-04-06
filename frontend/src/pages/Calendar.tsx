@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { calendar, tasks as tasksApi, projects as projectsApi } from '../lib/api'
 import { getProjectColor } from '../lib/colors'
+import { parseUTCDate } from '../lib/datetime'
 import type { CalendarEvent, EventType, Task, Goal } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -83,11 +84,8 @@ interface BigCalEvent {
   resource: CalendarEvent
 }
 
-// Backend stores datetimes as naive UTC (no 'Z' suffix). Without it, browsers
-// treat the string as local time. Appending 'Z' ensures correct UTC→local conversion.
-function toUTC(iso: string): Date {
-  return new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z')
-}
+// Use shared UTC parser — backend stores naive UTC datetimes
+const toUTC = parseUTCDate
 
 function toBigCalEvent(e: CalendarEvent): BigCalEvent {
   return {
@@ -464,7 +462,17 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
           <label className="text-xs font-medium text-slate-500 uppercase tracking-wide flex items-center gap-1">
             <Clock size={11} /> Start
           </label>
-          <Input type="datetime-local" value={start} onChange={e => setStart(e.target.value)} className="mt-1 h-8" />
+          <Input type="datetime-local" value={start} onChange={e => {
+            const newStart = e.target.value
+            setStart(newStart)
+            if (newStart) {
+              const startDate = new Date(newStart)
+              const selectedTask = taskId ? tasksList.find(t => t.id === taskId) : undefined
+              const durationMs = (selectedTask?.estimated_minutes ?? 30) * 60_000
+              const endDate = new Date(startDate.getTime() + durationMs)
+              setEnd(endDate.toISOString().slice(0, 16))
+            }
+          }} className="mt-1 h-8" />
         </div>
         <div>
           <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">End</label>

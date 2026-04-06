@@ -419,8 +419,8 @@ export function Goals() {
               goal={g}
               subgoals={subgoals(g.id)}
               linkedTasks={allTasks.filter(t => t.project_id === g.id)}
-              onEdit={g => { setEditing(g); setFormOpen(true) }}
-              onDelete={g => deleteGoal.mutate(g.id)}
+              onEdit={(g: Goal) => { setEditing(g); setFormOpen(true) }}
+              onDelete={(g: Goal) => deleteGoal.mutate(g.id)}
               onAddSubgoal={parentId => { setParentForNew(parentId); setEditing(null); setFormOpen(true) }}
               onToggleSubgoal={handleToggleSubgoal}
               onDeleteSubgoal={g => deleteGoal.mutate(g.id)}

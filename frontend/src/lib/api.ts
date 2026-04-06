@@ -403,6 +403,10 @@ export const preferences = {
 }
 
 // ---------------------------------------------------------------------------
+// Alias: Goals.tsx uses "goals", API route is /api/projects
+// ---------------------------------------------------------------------------
+export const goals = projects
+
 // Legacy export for backwards compat (Sprint 0 used api.get/post directly)
 // ---------------------------------------------------------------------------
 export const api = { get, post, put, del }

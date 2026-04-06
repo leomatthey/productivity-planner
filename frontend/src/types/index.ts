@@ -1,9 +1,11 @@
 // Mirrors the Python SQLAlchemy schema exactly
 
-export type TaskStatus = 'todo' | 'in_progress' | 'done' | 'cancelled'
+export type TaskStatus = 'todo' | 'in_progress' | 'scheduled' | 'done' | 'cancelled'
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 export type EnergyLevel = 'low' | 'medium' | 'high'
-export type GoalStatus = 'active' | 'paused' | 'completed' | 'archived'
+export type ProjectStatus = 'active' | 'paused' | 'completed' | 'archived'
+/** @deprecated Use ProjectStatus */
+export type GoalStatus = ProjectStatus
 export type ProgressMode = 'manual' | 'auto'
 export type HabitFrequency = 'daily' | 'weekdays' | 'weekly' | 'custom'
 export type TimeOfDay = 'morning' | 'afternoon' | 'evening' | 'anytime'
@@ -28,11 +30,11 @@ export interface Task {
   deleted_at?: string
 }
 
-export interface Goal {
+export interface Project {
   id: number
   title: string
   description?: string
-  status: GoalStatus
+  status: ProjectStatus
   target_date?: string
   progress_pct: number
   progress_mode: ProgressMode
@@ -42,11 +44,11 @@ export interface Goal {
   updated_at: string
   deleted_at?: string
   tasks?: Task[]
-  subgoals?: Goal[]
+  subgoals?: Project[]
 }
 
-// Alias — new code should use Project; internal DB table stays "goals"
-export type Project = Goal
+/** @deprecated Use Project */
+export type Goal = Project
 
 export interface CalendarEvent {
   id: number
@@ -118,16 +120,19 @@ export interface UpdateTaskRequest extends Partial<CreateTaskRequest> {
   current_updated_at?: string
 }
 
-export interface CreateGoalRequest {
+export interface CreateProjectRequest {
   title: string
   description?: string
-  status?: GoalStatus
+  status?: ProjectStatus
   target_date?: string
   progress_pct?: number
   progress_mode?: ProgressMode
   parent_id?: number
   color?: string
 }
+
+/** @deprecated Use CreateProjectRequest */
+export type CreateGoalRequest = CreateProjectRequest
 
 export interface CreateEventRequest {
   title: string

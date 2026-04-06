@@ -14,6 +14,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { tasks, calendar as calendarApi, projects as projectsApi } from '../lib/api'
 import { getProjectColor } from '../lib/colors'
 import { scheduleBatch, findTopSlots, type ScheduledTask } from '../lib/scheduling'
+import { parseUTCDate } from '../lib/datetime'
 import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, UpdateTaskRequest } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -21,10 +22,10 @@ import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, Upda
 // ---------------------------------------------------------------------------
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: 'To Do', in_progress: 'In Progress', done: 'Done', cancelled: 'Cancelled',
+  todo: 'To Do', in_progress: 'In Progress', scheduled: 'Scheduled', done: 'Done', cancelled: 'Cancelled',
 }
 const PRIORITY_ORDER: Priority[] = ['urgent', 'high', 'medium', 'low']
-const STATUS_ORDER: TaskStatus[] = ['todo', 'in_progress', 'done', 'cancelled']
+const STATUS_ORDER: TaskStatus[] = ['in_progress', 'scheduled', 'todo', 'done', 'cancelled']
 const ENERGY_LEVELS: EnergyLevel[] = ['low', 'medium', 'high']
 
 const DURATION_OPTIONS = [
@@ -58,6 +59,7 @@ function priorityClass(p: Priority): string {
 function statusClass(s: TaskStatus): string {
   return s === 'done'        ? 'badge-done'
     : s === 'in_progress' ? 'badge-in_progress'
+    : s === 'scheduled'   ? 'badge-scheduled'
     : s === 'cancelled'   ? 'badge-cancelled'
     : 'badge-todo'
 }
@@ -72,7 +74,12 @@ function groupByFn(
     if (!map.has(key)) map.set(key, [])
     map.get(key)!.push(t)
   }
-  return Array.from(map.entries())
+  const entries = Array.from(map.entries())
+  // Sort groups by defined order when grouping by status
+  if (by === 'status') {
+    entries.sort((a, b) => STATUS_ORDER.indexOf(a[0] as TaskStatus) - STATUS_ORDER.indexOf(b[0] as TaskStatus))
+  }
+  return entries
 }
 
 function getMondayOfWeek(date: Date): Date {
@@ -84,9 +91,8 @@ function getMondayOfWeek(date: Date): Date {
   return d
 }
 
-function toUTCSafe(iso: string): Date {
-  return new Date(iso.endsWith('Z') || iso.includes('+') ? iso : iso + 'Z')
-}
+// Use shared UTC parser — backend stores naive UTC datetimes
+const toUTCSafe = parseUTCDate
 
 function getSlotStyle(start: Date, end: Date): React.CSSProperties {
   const startMins = (start.getHours() - WORK_START_H) * 60 + start.getMinutes()
@@ -306,9 +312,10 @@ interface TaskDetailModalProps {
   open: boolean
   onClose: () => void
   onSave: (id: number, data: UpdateTaskRequest) => void
+  onCreate?: (data: { title: string; description?: string; status?: TaskStatus; priority?: Priority; due_date?: string; tags?: string; project_id?: number; estimated_minutes?: number; energy_level?: EnergyLevel }) => void
 }
 
-function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) {
+function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailModalProps) {
   const [title, setTitle]             = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus]           = useState<TaskStatus>('todo')
@@ -342,18 +349,25 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
   })
 
   useEffect(() => {
-    if (task && open) {
-      setTitle(task.title)
-      setDescription(task.description ?? '')
-      setStatus(task.status as TaskStatus)
-      setPriority(task.priority as Priority)
-      setDueDate(task.due_date ?? '')
-      setTags(task.tags ?? '')
-      setProjectId(task.project_id)
-      setEstMins(task.estimated_minutes)
-      setEnergy(task.energy_level as EnergyLevel | undefined)
-      setScheduledAt(task.scheduled_at)
-      setProposals([])
+    if (open) {
+      if (task) {
+        setTitle(task.title)
+        setDescription(task.description ?? '')
+        setStatus(task.status as TaskStatus)
+        setPriority(task.priority as Priority)
+        setDueDate(task.due_date ?? '')
+        setTags(task.tags ?? '')
+        setProjectId(task.project_id)
+        setEstMins(task.estimated_minutes)
+        setEnergy(task.energy_level as EnergyLevel | undefined)
+        setScheduledAt(task.scheduled_at)
+        setProposals([])
+      } else {
+        // Create mode — reset all fields
+        setTitle(''); setDescription(''); setStatus('todo'); setPriority('medium')
+        setDueDate(''); setTags(''); setProjectId(undefined); setEstMins(undefined)
+        setEnergy(undefined); setScheduledAt(undefined); setProposals([])
+      }
     }
   }, [task, open])
 
@@ -370,6 +384,7 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
 
   async function handleApprove(proposal: ScheduledTask) {
     setScheduledAt(proposal.start.toISOString())
+    setStatus('scheduled')
     setProposals([])
     try {
       await createCalendarEvent.mutateAsync({
@@ -386,20 +401,34 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
   }
 
   function handleSave() {
-    if (!task) return
-    onSave(task.id, {
-      title,
-      description:       description || undefined,
-      status,
-      priority,
-      due_date:          dueDate || undefined,
-      tags:              tags || undefined,
-      project_id:        projectId,
-      estimated_minutes: estimatedMins,
-      energy_level:      energyLevel,
-      scheduled_at:      scheduledAt,
-      current_updated_at: task.updated_at,
-    })
+    if (!title.trim()) { toast.error('Title is required'); return }
+    if (task) {
+      onSave(task.id, {
+        title,
+        description:       description || undefined,
+        status,
+        priority,
+        due_date:          dueDate || undefined,
+        tags:              tags || undefined,
+        project_id:        projectId,
+        estimated_minutes: estimatedMins,
+        energy_level:      energyLevel,
+        scheduled_at:      scheduledAt,
+        current_updated_at: task.updated_at,
+      })
+    } else if (onCreate) {
+      onCreate({
+        title,
+        description: description || undefined,
+        status,
+        priority,
+        due_date: dueDate || undefined,
+        tags: tags || undefined,
+        project_id: projectId,
+        estimated_minutes: estimatedMins,
+        energy_level: energyLevel,
+      })
+    }
     onClose()
   }
 
@@ -414,7 +443,7 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
     <Dialog open={open} onOpenChange={v => !v && onClose()}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Task</DialogTitle>
+          <DialogTitle>{task ? 'Edit Task' : 'New Task'}</DialogTitle>
         </DialogHeader>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-2">
 
@@ -437,9 +466,32 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
                 <SelectTrigger className="mt-1 h-8"><SelectValue placeholder="No project" /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__none__">No project</SelectItem>
-                  {projectsList.map(p => (
-                    <SelectItem key={p.id} value={String(p.id)}>{p.title}</SelectItem>
-                  ))}
+                  {/* Show top-level projects first, then sub-projects indented below their parent */}
+                  {projectsList
+                    .filter(p => !p.parent_id && !p.deleted_at)
+                    .flatMap(parent => {
+                      const children = projectsList.filter(c => c.parent_id === parent.id && !c.deleted_at)
+                      const parentColor = getProjectColor(parent.id, projectsList)
+                      return [
+                        <SelectItem key={parent.id} value={String(parent.id)}>
+                          <span className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: parentColor }} />
+                            {parent.title}
+                          </span>
+                        </SelectItem>,
+                        ...children.map(child => {
+                          const childColor = getProjectColor(child.id, projectsList)
+                          return (
+                            <SelectItem key={child.id} value={String(child.id)}>
+                              <span className="flex items-center gap-1.5 pl-3">
+                                <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ backgroundColor: childColor }} />
+                                {child.title}
+                              </span>
+                            </SelectItem>
+                          )
+                        }),
+                      ]
+                    })}
                 </SelectContent>
               </Select>
             </div>
@@ -521,51 +573,92 @@ function TaskDetailModal({ task, open, onClose, onSave }: TaskDetailModalProps) 
                   <span className="text-xs text-primary-600 dark:text-primary-400">{scheduledDisplay}</span>
                 )}
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="w-full"
-                onClick={handleFindSlots}
-                disabled={createCalendarEvent.isPending}
-              >
-                Find 3 Time Slots
-              </Button>
-              {proposals.length > 0 && (
-                <div className="space-y-2 mt-1">
-                  {proposals.map((p, i) => {
-                    const dateLabel = p.start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-                    const timeLabel = `${p.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${p.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
-                    return (
-                      <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2 space-y-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="min-w-0">
-                            <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{dateLabel}</div>
-                            <div className="text-xs text-slate-500">{timeLabel}</div>
-                          </div>
-                          <div className="flex items-center gap-1 shrink-0">
-                            <Button
-                              size="sm"
-                              className="h-6 text-xs px-2"
-                              onClick={() => handleApprove(p)}
-                              disabled={createCalendarEvent.isPending}
-                            >
-                              Accept
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 text-xs px-2"
-                              onClick={() => setProposals(prev => prev.filter((_, idx) => idx !== i))}
-                            >
-                              ✕
-                            </Button>
-                          </div>
-                        </div>
-                        <SlotDayPreview slot={p} events={events} />
-                      </div>
-                    )
-                  })}
+              {status === 'scheduled' && scheduledAt ? (
+                /* Already scheduled — show info + reschedule option */
+                <div className="space-y-2">
+                  <div className="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-md px-3 py-2">
+                    <div className="text-xs font-medium text-primary-700 dark:text-primary-300">
+                      Scheduled for {scheduledDisplay}
+                    </div>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => {
+                      setStatus('todo')
+                      setScheduledAt(undefined)
+                      setProposals([])
+                    }}
+                  >
+                    Reschedule
+                  </Button>
                 </div>
+              ) : (
+                /* Not scheduled — show scheduling UI */
+                <>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="w-full"
+                    onClick={handleFindSlots}
+                    disabled={createCalendarEvent.isPending}
+                  >
+                    Find 3 Time Slots
+                  </Button>
+                  {proposals.length > 0 && (
+                    <div className="space-y-2 mt-1">
+                      {proposals.map((p, i) => {
+                        const dateLabel = p.start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+                        const timeLabel = `${p.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${p.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        return (
+                          <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2 space-y-1">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0">
+                                <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{dateLabel}</div>
+                                <div className="text-xs text-slate-500">{timeLabel}</div>
+                              </div>
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Button
+                                  size="sm"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => handleApprove(p)}
+                                  disabled={createCalendarEvent.isPending}
+                                >
+                                  Accept
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-6 text-xs px-2"
+                                  onClick={() => setProposals(prev => prev.filter((_, idx) => idx !== i))}
+                                >
+                                  ✕
+                                </Button>
+                              </div>
+                            </div>
+                            <SlotDayPreview slot={p} events={events} />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {/* Manual scheduling fallback when all proposals dismissed */}
+                  {proposals.length === 0 && !scheduledAt && task && (
+                    <div className="space-y-2 mt-1">
+                      <label className="text-xs text-slate-500">Or pick a time manually:</label>
+                      <Input
+                        type="datetime-local"
+                        value={scheduledAt ?? ''}
+                        onChange={e => {
+                          setScheduledAt(e.target.value ? new Date(e.target.value).toISOString() : undefined)
+                          if (e.target.value) setStatus('scheduled')
+                        }}
+                        className="h-8 text-xs"
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -622,8 +715,9 @@ function CompletedSection({ tasks: completedTasks, projectsList, onToggle, onSel
 // ---------------------------------------------------------------------------
 
 const KANBAN_COLUMNS: { status: TaskStatus; label: string }[] = [
-  { status: 'todo',        label: 'To Do' },
   { status: 'in_progress', label: 'In Progress' },
+  { status: 'scheduled',   label: 'Scheduled' },
+  { status: 'todo',        label: 'To Do' },
   { status: 'done',        label: 'Done' },
   { status: 'cancelled',   label: 'Cancelled' },
 ]
@@ -736,7 +830,7 @@ function SmartSchedulePanel({ allTasks, events }: {
   )
 
   const unscheduledTasks = allTasks.filter(
-    t => !t.scheduled_at && t.status !== 'done' && t.status !== 'cancelled' && !t.deleted_at,
+    t => !t.scheduled_at && t.status !== 'done' && t.status !== 'cancelled' && t.status !== 'scheduled' && !t.deleted_at,
   )
 
   function toggleId(id: number) {
@@ -751,7 +845,7 @@ function SmartSchedulePanel({ allTasks, events }: {
   function handleSchedule() {
     const toSchedule = unscheduledTasks.filter(t => selectedIds.has(t.id))
     if (!toSchedule.length) { toast.error('Select at least one task'); return }
-    const result = scheduleBatch(toSchedule, events, monday)
+    const result = scheduleBatch(toSchedule, events, new Date())
     setProposed(result)
     setRejectedIds(new Set())
     if (result.length < toSchedule.length) {
@@ -766,13 +860,14 @@ function SmartSchedulePanel({ allTasks, events }: {
       const task = allTasks.find(t => t.id === slot.taskId)
       await updateTask.mutateAsync({
         id:   slot.taskId,
-        data: { scheduled_at: slot.start.toISOString(), current_updated_at: task?.updated_at },
+        data: { status: 'scheduled', scheduled_at: slot.start.toISOString(), current_updated_at: task?.updated_at },
       })
       await createEvent.mutateAsync({
         title:          slot.title,
         start_datetime: slot.start.toISOString(),
         end_datetime:   slot.end.toISOString(),
         event_type:     'task_block',
+        task_id:        slot.taskId,
       })
     }
     toast.success(`Confirmed ${toConfirm.length} task${toConfirm.length !== 1 ? 's' : ''}`)
@@ -1190,11 +1285,21 @@ export function Tasks() {
       </div>
 
       {/* Quick-add */}
-      <div className="mb-6">
-        <QuickAdd
-          onCreate={(title, extra) => createTask.mutate({ title, ...extra })}
-          isCreating={createTask.isPending}
-        />
+      <div className="mb-6 flex gap-2 items-start">
+        <div className="flex-1">
+          <QuickAdd
+            onCreate={(title, extra) => createTask.mutate({ title, ...extra })}
+            isCreating={createTask.isPending}
+          />
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0"
+          onClick={() => { setSelected(null); setModalOpen(true) }}
+        >
+          <Plus size={14} className="mr-1" /> Details
+        </Button>
       </div>
 
       {/* Main content */}
@@ -1256,6 +1361,7 @@ export function Tasks() {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSave={handleSave}
+        onCreate={data => { createTask.mutate(data); toast.success('Task created') }}
       />
     </AppShell>
   )

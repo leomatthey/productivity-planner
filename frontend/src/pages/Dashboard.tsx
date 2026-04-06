@@ -4,6 +4,7 @@ import { CheckCircle2, Circle, CalendarDays, AlertCircle, Repeat2, ChevronRight 
 import { AppShell } from '../components/layout/AppShell'
 import { tasks, habits, calendar } from '../lib/api'
 import type { Task, CalendarEvent } from '../types'
+import { parseUTCDate } from '../lib/datetime'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -24,11 +25,11 @@ function isOverdue(task: Task): boolean {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return parseUTCDate(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
 }
 
 function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+  return parseUTCDate(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
 const EVENT_COLOURS: Record<string, string> = {
