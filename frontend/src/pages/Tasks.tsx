@@ -13,9 +13,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Textarea } from '@/components/ui/textarea'
 import { tasks, calendar as calendarApi, projects as projectsApi } from '../lib/api'
 import { getProjectColor } from '../lib/colors'
-import { scheduleBatch, findTopSlots, type ScheduledTask } from '../lib/scheduling'
 import { parseUTCDate } from '../lib/datetime'
 import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, UpdateTaskRequest } from '../types'
+
+// Proposal shape returned by backend find-slots
+interface SlotProposal {
+  start: string  // ISO datetime
+  end: string    // ISO datetime
+  date: string   // ISO date
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -254,54 +260,7 @@ function TaskRow({ task, projectsList, onToggle, onSelect, onDelete }: TaskRowPr
   )
 }
 
-// ---------------------------------------------------------------------------
-// SlotDayPreview — Mini day timeline for proposed slot
-// ---------------------------------------------------------------------------
-
-// Mini day timeline showing where a proposed slot falls — used inside TaskDetailModal
-function SlotDayPreview({ slot, events }: { slot: ScheduledTask; events: CalendarEvent[] }) {
-  const dateStr = slot.start.toISOString().slice(0, 10)
-  const dayEvents = events.filter(e =>
-    toUTCSafe(e.start_datetime).toISOString().slice(0, 10) === dateStr,
-  )
-
-  return (
-    <div
-      className="relative mt-1.5 border border-slate-100 dark:border-slate-700 rounded overflow-hidden bg-slate-50 dark:bg-slate-900"
-      style={{ height: `${(WORK_END_H - WORK_START_H) * HOUR_HEIGHT}px` }}
-    >
-      {HOUR_LABELS.map((label, i) => (
-        <div
-          key={i}
-          className="absolute left-0 right-0 border-t border-slate-100 dark:border-slate-800 flex items-start"
-          style={{ top: `${i * HOUR_HEIGHT}px` }}
-        >
-          <span className="text-[8px] text-slate-300 pl-0.5 leading-none">{label}</span>
-        </div>
-      ))}
-      {dayEvents.map(ev => {
-        const s   = toUTCSafe(ev.start_datetime)
-        const e   = toUTCSafe(ev.end_datetime)
-        const sty = getSlotStyle(s, e)
-        return (
-          <div
-            key={ev.id}
-            className="absolute rounded text-[8px] text-white px-0.5 overflow-hidden leading-tight"
-            style={{ ...sty, left: '22px', right: '2px', backgroundColor: EVENT_COLOURS[ev.event_type] ?? '#94A3B8' }}
-          >
-            {ev.title}
-          </div>
-        )
-      })}
-      <div
-        className="absolute rounded text-[8px] text-primary-700 dark:text-primary-300 px-0.5 overflow-hidden leading-tight border border-primary-300"
-        style={{ ...getSlotStyle(slot.start, slot.end), left: '22px', right: '2px', backgroundColor: 'rgba(79,70,229,0.18)' }}
-      >
-        ✓ {slot.title}
-      </div>
-    </div>
-  )
-}
+// SlotDayPreview removed — scheduling proposals now come from backend
 
 // ---------------------------------------------------------------------------
 // TaskDetailModal — Dialog, two columns, scheduling section
@@ -326,7 +285,8 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
   const [estimatedMins, setEstMins]   = useState<number | undefined>()
   const [energyLevel, setEnergy]      = useState<EnergyLevel | undefined>()
   const [scheduledAt, setScheduledAt] = useState<string | undefined>()
-  const [proposals, setProposals]     = useState<ScheduledTask[]>([])
+  const [proposals, setProposals]     = useState<SlotProposal[]>([])
+  const [scheduling, setScheduling]   = useState(false)
 
   const qc = useQueryClient()
 
@@ -334,18 +294,6 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
     queryKey: ['projects'],
     queryFn: () => projectsApi.list(),
     enabled: open,
-  })
-
-  const { data: events = [] } = useQuery({
-    queryKey: ['events-scheduling'],
-    queryFn: () => calendarApi.events({ include_stale: true }),
-    enabled: open,
-  })
-
-  const createCalendarEvent = useMutation({
-    mutationFn: (body: Parameters<typeof calendarApi.createEvent>[0]) =>
-      calendarApi.createEvent(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
   })
 
   useEffect(() => {
@@ -371,32 +319,44 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
     }
   }, [task, open])
 
-  function handleFindSlots() {
+  async function handleFindSlots() {
     if (!task) return
-    const taskForSchedule: Task = { ...task, estimated_minutes: estimatedMins ?? task.estimated_minutes }
-    const results = findTopSlots(taskForSchedule, events, new Date())
-    if (results.length === 0) {
-      toast.error('No free slots found in the next 14 days')
-    } else {
-      setProposals(results)
+    setScheduling(true)
+    try {
+      // If user changed estimated_minutes in the modal, save it first
+      if (estimatedMins !== task.estimated_minutes) {
+        await tasks.update(task.id, { estimated_minutes: estimatedMins })
+      }
+      const result = await tasks.findSlots({ task_id: task.id, count: 3 })
+      if (result.slots.length === 0) {
+        toast.error('No free slots found in the next 14 days')
+      } else {
+        setProposals(result.slots)
+      }
+    } catch {
+      toast.error('Failed to find slots')
+    } finally {
+      setScheduling(false)
     }
   }
 
-  async function handleApprove(proposal: ScheduledTask) {
-    setScheduledAt(proposal.start.toISOString())
-    setStatus('scheduled')
-    setProposals([])
+  async function handleApprove(proposal: SlotProposal) {
+    if (!task) return
+    setScheduling(true)
     try {
-      await createCalendarEvent.mutateAsync({
-        title:          task!.title,
-        start_datetime: proposal.start.toISOString(),
-        end_datetime:   proposal.end.toISOString(),
-        event_type:     'task_block',
-        task_id:        task!.id,
+      await tasks.schedule(task.id, {
+        start_datetime: proposal.start,
+        end_datetime: proposal.end,
       })
-      toast.success('Slot accepted — calendar event created')
+      // Atomic: task status + calendar event both done
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['events'] })
+      toast.success('Task scheduled')
+      onClose()
     } catch {
-      toast.error('Slot set but calendar event failed')
+      toast.error('Failed to schedule task')
+    } finally {
+      setScheduling(false)
     }
   }
 
@@ -602,17 +562,20 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
                     size="sm"
                     className="w-full"
                     onClick={handleFindSlots}
-                    disabled={createCalendarEvent.isPending}
+                    disabled={scheduling}
                   >
+                    {scheduling ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
                     Find 3 Time Slots
                   </Button>
                   {proposals.length > 0 && (
                     <div className="space-y-2 mt-1">
                       {proposals.map((p, i) => {
-                        const dateLabel = p.start.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-                        const timeLabel = `${p.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${p.end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        const startDate = parseUTCDate(p.start)
+                        const endDate = parseUTCDate(p.end)
+                        const dateLabel = startDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+                        const timeLabel = `${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
                         return (
-                          <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2 space-y-1">
+                          <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2">
                             <div className="flex items-center justify-between gap-2">
                               <div className="min-w-0">
                                 <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{dateLabel}</div>
@@ -623,7 +586,7 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
                                   size="sm"
                                   className="h-6 text-xs px-2"
                                   onClick={() => handleApprove(p)}
-                                  disabled={createCalendarEvent.isPending}
+                                  disabled={scheduling}
                                 >
                                   Accept
                                 </Button>
@@ -637,13 +600,12 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
                                 </Button>
                               </div>
                             </div>
-                            <SlotDayPreview slot={p} events={events} />
                           </div>
                         )
                       })}
                     </div>
                   )}
-                  {/* Manual scheduling fallback when all proposals dismissed */}
+                  {/* Manual scheduling fallback */}
                   {proposals.length === 0 && !scheduledAt && task && (
                     <div className="space-y-2 mt-1">
                       <label className="text-xs text-slate-500">Or pick a time manually:</label>
@@ -796,28 +758,25 @@ const HOUR_LABELS = Array.from({ length: WORK_END_H - WORK_START_H }, (_, i) => 
   return h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`
 })
 
+// Batch proposal from backend
+interface BatchProposal {
+  taskId: number
+  title: string
+  start: Date
+  end: Date
+}
+
 function SmartSchedulePanel({ allTasks, events }: {
   allTasks: Task[]
   events: CalendarEvent[]
 }) {
   const [open, setOpen]           = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [proposed, setProposed]   = useState<ScheduledTask[]>([])
+  const [proposed, setProposed]   = useState<BatchProposal[]>([])
   const [rejectedIds, setRejectedIds] = useState<Set<number>>(new Set())
+  const [loading, setLoading]     = useState(false)
 
   const qc = useQueryClient()
-
-  const updateTask = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: UpdateTaskRequest }) =>
-      tasks.update(id, data),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
-  })
-
-  const createEvent = useMutation({
-    mutationFn: (body: Parameters<typeof calendarApi.createEvent>[0]) =>
-      calendarApi.createEvent(body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['events'] }),
-  })
 
   const monday = useMemo(() => getMondayOfWeek(new Date()), [])
   const weekDays = useMemo(() =>
@@ -839,38 +798,53 @@ function SmartSchedulePanel({ allTasks, events }: {
       next.has(id) ? next.delete(id) : next.add(id)
       return next
     })
-    // Do NOT clear proposals here — only clear on generate/confirm
   }
 
-  function handleSchedule() {
+  async function handleSchedule() {
     const toSchedule = unscheduledTasks.filter(t => selectedIds.has(t.id))
     if (!toSchedule.length) { toast.error('Select at least one task'); return }
-    const result = scheduleBatch(toSchedule, events, new Date())
-    setProposed(result)
-    setRejectedIds(new Set())
-    if (result.length < toSchedule.length) {
-      toast.warning(`Could only schedule ${result.length} of ${toSchedule.length} tasks`)
+    setLoading(true)
+    try {
+      // Use backend auto-assign to get proposals
+      const result = await tasks.scheduleBatch({
+        task_ids: toSchedule.map(t => t.id),
+      })
+      // Convert to local BatchProposal format for display
+      const proposals: BatchProposal[] = result.scheduled.map(s => ({
+        taskId: s.task.id,
+        title: s.task.title,
+        start: parseUTCDate(String(s.event.start_datetime)),
+        end: parseUTCDate(String(s.event.end_datetime)),
+      }))
+      setProposed(proposals)
+      setRejectedIds(new Set())
+      // Refresh queries since batch already scheduled
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['events'] })
+      if (result.failed.length > 0) {
+        toast.warning(`Could not schedule ${result.failed.length} task(s)`)
+      }
+      if (result.scheduled.length > 0) {
+        toast.success(`Scheduled ${result.scheduled.length} task(s)`)
+      }
+    } catch {
+      toast.error('Failed to schedule tasks')
+    } finally {
+      setLoading(false)
     }
   }
 
-  async function handleConfirm() {
-    const toConfirm = proposed.filter(s => !rejectedIds.has(s.taskId))
-    if (toConfirm.length === 0) { toast.error('No accepted slots to confirm'); return }
-    for (const slot of toConfirm) {
-      const task = allTasks.find(t => t.id === slot.taskId)
-      await updateTask.mutateAsync({
-        id:   slot.taskId,
-        data: { status: 'scheduled', scheduled_at: slot.start.toISOString(), current_updated_at: task?.updated_at },
-      })
-      await createEvent.mutateAsync({
-        title:          slot.title,
-        start_datetime: slot.start.toISOString(),
-        end_datetime:   slot.end.toISOString(),
-        event_type:     'task_block',
-        task_id:        slot.taskId,
-      })
+  async function handleUnscheduleRejected() {
+    // Unschedule any that user rejected after the batch was applied
+    const toUnschedule = proposed.filter(s => rejectedIds.has(s.taskId))
+    for (const slot of toUnschedule) {
+      try {
+        await tasks.unschedule(slot.taskId)
+      } catch { /* ignore individual failures */ }
     }
-    toast.success(`Confirmed ${toConfirm.length} task${toConfirm.length !== 1 ? 's' : ''}`)
+    qc.invalidateQueries({ queryKey: ['tasks'] })
+    qc.invalidateQueries({ queryKey: ['events'] })
+    toast.success('Rejected tasks unscheduled')
     setProposed([])
     setRejectedIds(new Set())
     setSelectedIds(new Set())
@@ -881,7 +855,7 @@ function SmartSchedulePanel({ allTasks, events }: {
     return events.filter(e => toUTCSafe(e.start_datetime).toISOString().slice(0, 10) === dateStr)
   }
 
-  function getProposedOnDay(day: Date): ScheduledTask[] {
+  function getProposedOnDay(day: Date): BatchProposal[] {
     const dateStr = day.toISOString().slice(0, 10)
     return proposed.filter(s => s.start.toISOString().slice(0, 10) === dateStr)
   }
@@ -959,17 +933,17 @@ function SmartSchedulePanel({ allTasks, events }: {
               })}
             </div>
             <div className="flex flex-col gap-2 mt-4">
-              <Button size="sm" onClick={handleSchedule} disabled={selectedIds.size === 0}>
+              <Button size="sm" onClick={handleSchedule} disabled={selectedIds.size === 0 || loading}>
+                {loading ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
                 Schedule Selected
               </Button>
-              {proposed.length > 0 && (
+              {proposed.length > 0 && rejectedIds.size > 0 && (
                 <Button
                   size="sm"
                   variant="outline"
-                  onClick={handleConfirm}
-                  disabled={updateTask.isPending || createEvent.isPending}
+                  onClick={handleUnscheduleRejected}
                 >
-                  {updateTask.isPending || createEvent.isPending ? 'Saving…' : 'Confirm & Save'}
+                  Undo Rejected ({rejectedIds.size})
                 </Button>
               )}
             </div>
@@ -1126,10 +1100,18 @@ export function Tasks() {
   })
 
   function handleToggle(task: Task) {
-    updateTask.mutate({
-      id: task.id,
-      data: { status: task.status === 'done' ? 'todo' : 'done', current_updated_at: task.updated_at },
-    })
+    if (task.status === 'done') {
+      // Undo done → back to todo
+      updateTask.mutate({ id: task.id, data: { status: 'todo', current_updated_at: task.updated_at } })
+    } else if (task.status === 'scheduled') {
+      // Unschedule + mark done atomically
+      tasks.unschedule(task.id).then(() => {
+        updateTask.mutate({ id: task.id, data: { status: 'done' } })
+      })
+    } else {
+      // todo/in_progress → done
+      updateTask.mutate({ id: task.id, data: { status: 'done', current_updated_at: task.updated_at } })
+    }
   }
 
   function handleSave(id: number, data: UpdateTaskRequest) {

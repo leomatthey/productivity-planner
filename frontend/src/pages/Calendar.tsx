@@ -659,6 +659,16 @@ export function Calendar() {
   function handleSave(data: Partial<CalendarEvent>, id?: number) {
     if (id) {
       updateEvent.mutate({ id, data })
+    } else if (data.event_type === 'task_block' && data.task_id) {
+      // Use atomic schedule endpoint for task_block events
+      tasksApi.schedule(data.task_id, {
+        start_datetime: data.start_datetime!,
+        end_datetime:   data.end_datetime!,
+      }).then(() => {
+        qc.invalidateQueries({ queryKey: ['events'] })
+        qc.invalidateQueries({ queryKey: ['tasks'] })
+        toast.success('Task scheduled')
+      }).catch(() => toast.error('Failed to schedule task'))
     } else {
       createEvent.mutate({
         title:          data.title!,

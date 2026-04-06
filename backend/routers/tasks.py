@@ -14,6 +14,7 @@ from pydantic import BaseModel
 
 import db.crud as crud
 from utils.date_utils import parse_nl_date
+from utils.scheduling import find_slots_for_task, schedule_batch_auto
 
 router = APIRouter()
 
@@ -139,3 +140,159 @@ def parse_date(body: ParseDateRequest):
     if result is None:
         raise HTTPException(status_code=422, detail=f"Cannot parse date: {body.text!r}")
     return {"date": result.isoformat()}
+
+
+# ---------------------------------------------------------------------------
+#  Scheduling endpoints — atomic operations
+# ---------------------------------------------------------------------------
+
+class EventOut(BaseModel):
+    id:                 int
+    title:              str
+    description:        Optional[str]
+    event_type:         str
+    start_datetime:     datetime
+    end_datetime:       datetime
+    location:           Optional[str]
+    task_id:            Optional[int]
+    is_recurring:       bool
+    recurrence_rule:    Optional[str]
+    source:             str
+    google_event_id:    Optional[str]
+    google_calendar_id: Optional[str]
+    is_read_only:       bool
+    sync_stale:         bool
+    created_at:         datetime
+    deleted_at:         Optional[datetime]
+
+    class Config:
+        from_attributes = True
+
+
+class ScheduleTaskRequest(BaseModel):
+    start_datetime: datetime
+    end_datetime: datetime
+
+
+class FindSlotsRequest(BaseModel):
+    task_id: int
+    count: int = 3
+    start_date: Optional[date] = None
+
+
+class ScheduleBatchItem(BaseModel):
+    task_id: int
+    start_datetime: datetime
+    end_datetime: datetime
+
+
+class ScheduleBatchRequest(BaseModel):
+    items: Optional[List[ScheduleBatchItem]] = None
+    task_ids: Optional[List[int]] = None
+    start_date: Optional[date] = None
+
+
+class ScheduleResult(BaseModel):
+    task: TaskOut
+    event: EventOut
+
+
+@router.post("/find-slots")
+def find_slots(body: FindSlotsRequest):
+    """Find free time slots for a task. Returns proposals only, no DB writes."""
+    try:
+        slots = find_slots_for_task(
+            task_id=body.task_id,
+            count=body.count,
+            start_date=body.start_date,
+        )
+        return {
+            "slots": [
+                {
+                    "start": s["start"].isoformat(),
+                    "end": s["end"].isoformat(),
+                    "date": s["date"],
+                }
+                for s in slots
+            ]
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/{task_id}/schedule", response_model=ScheduleResult)
+def schedule_task(task_id: int, body: ScheduleTaskRequest):
+    """Atomically schedule a task: update status + create calendar event."""
+    try:
+        task, event = crud.schedule_task(
+            task_id=task_id,
+            start_datetime=body.start_datetime,
+            end_datetime=body.end_datetime,
+        )
+        return {"task": task, "event": event}
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/schedule-batch")
+def schedule_batch(body: ScheduleBatchRequest):
+    """Schedule multiple tasks atomically."""
+    try:
+        if body.items:
+            # Explicit mode: use provided start/end times
+            batch_items = [
+                (item.task_id, item.start_datetime, item.end_datetime)
+                for item in body.items
+            ]
+            results = crud.schedule_task_batch(batch_items)
+            return {
+                "scheduled": [
+                    {"task": TaskOut.model_validate(t), "event": EventOut.model_validate(e)}
+                    for t, e in results
+                ],
+                "failed": [],
+            }
+        elif body.task_ids:
+            # Auto mode: find slots automatically, then schedule
+            proposals = schedule_batch_auto(
+                task_ids=body.task_ids,
+                start_date=body.start_date,
+            )
+            if not proposals:
+                return {"scheduled": [], "failed": [{"task_id": tid, "error": "No slot found"} for tid in body.task_ids]}
+
+            batch_items = [
+                (p["task_id"], p["start"], p["end"])
+                for p in proposals
+            ]
+            results = crud.schedule_task_batch(batch_items)
+
+            scheduled_ids = {t.id for t, _ in results}
+            failed = [
+                {"task_id": tid, "error": "No slot found"}
+                for tid in body.task_ids if tid not in scheduled_ids
+            ]
+            return {
+                "scheduled": [
+                    {"task": TaskOut.model_validate(t), "event": EventOut.model_validate(e)}
+                    for t, e in results
+                ],
+                "failed": failed,
+            }
+        else:
+            raise HTTPException(status_code=422, detail="Provide either 'items' or 'task_ids'")
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+
+
+@router.post("/{task_id}/unschedule")
+def unschedule_task(task_id: int):
+    """Atomically unschedule a task: delete events + reset status."""
+    try:
+        task, deleted_ids = crud.unschedule_task(task_id)
+        return {
+            "task": TaskOut.model_validate(task),
+            "deleted_event_ids": deleted_ids,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))

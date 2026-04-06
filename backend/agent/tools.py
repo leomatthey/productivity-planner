@@ -137,7 +137,7 @@ _GET_TASKS: dict = {
             },
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "done", "cancelled"],
+                "enum": ["todo", "in_progress", "scheduled", "done", "cancelled"],
                 "description": "Filter by task status.",
             },
             "priority": {
@@ -186,7 +186,7 @@ _CREATE_TASK: dict = {
             },
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "done", "cancelled"],
+                "enum": ["todo", "in_progress", "scheduled", "done", "cancelled"],
                 "description": "Initial status. Defaults to 'todo'.",
             },
             "priority": {
@@ -238,7 +238,7 @@ _UPDATE_TASK: dict = {
             "description": {"type": "string"},
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "done", "cancelled"],
+                "enum": ["todo", "in_progress", "scheduled", "done", "cancelled"],
             },
             "priority": {
                 "type": "string",
@@ -1001,6 +1001,7 @@ def _exec_get_weekly_summary(args: dict) -> dict:
 
 
 def _exec_suggest_schedule(args: dict) -> dict:
+    from utils.scheduling import find_free_slots
     from datetime import time as time_
 
     target_date = _parse_date(args.get("date")) or date.today()
@@ -1024,55 +1025,17 @@ def _exec_suggest_schedule(args: dict) -> dict:
         _PRIORITY_ORDER.get(t.priority or "medium", 2),
     ))
 
-    # Busy intervals from existing calendar events (in minutes since midnight)
-    day_start = datetime.combine(target_date, time_.min)
-    day_end   = datetime.combine(target_date, time_.max)
-    events    = crud.get_events(start=day_start, end=day_end, include_stale=True)
+    if not schedulable:
+        return {
+            "date":              target_date.isoformat(),
+            "slots":             [],
+            "unscheduled_count": 0,
+        }
 
-    work_start_min = start_hour * 60
-    work_end_min   = end_hour   * 60
-
-    raw_busy = []
-    # 1. Busy from calendar events — include stale so Google events are never missed
-    for e in events:
-        e_s = e.start_datetime.hour * 60 + e.start_datetime.minute
-        e_e = e.end_datetime.hour   * 60 + e.end_datetime.minute
-        if e_e > work_start_min and e_s < work_end_min:
-            raw_busy.append((max(e_s, work_start_min), min(e_e, work_end_min)))
-
-    # 2. Busy from tasks already scheduled on this day — prevents double-booking
-    all_tasks_for_busy = crud.get_tasks()
-    for t in all_tasks_for_busy:
-        if not t.scheduled_at:
-            continue
-        if t.scheduled_at.date() != target_date:
-            continue
-        if not t.estimated_minutes or t.estimated_minutes <= 0:
-            continue
-        t_s = t.scheduled_at.hour * 60 + t.scheduled_at.minute
-        t_e = t_s + t.estimated_minutes
-        if t_e > work_start_min and t_s < work_end_min:
-            raw_busy.append((max(t_s, work_start_min), min(t_e, work_end_min)))
-
-    raw_busy.sort()
-
-    # Merge overlapping busy intervals
-    merged_busy = []  # type: list
-    for b_s, b_e in raw_busy:
-        if merged_busy and b_s <= merged_busy[-1][1]:
-            merged_busy[-1] = (merged_busy[-1][0], max(merged_busy[-1][1], b_e))
-        else:
-            merged_busy.append([b_s, b_e])
-
-    # Derive free slots within the work window
-    free = []
-    cursor = work_start_min
-    for b_s, b_e in merged_busy:
-        if cursor < b_s:
-            free.append((cursor, b_s))
-        cursor = max(cursor, b_e)
-    if cursor < work_end_min:
-        free.append((cursor, work_end_min))
+    # Use shared scheduling engine to find free slots
+    # Get the smallest task duration to find all potentially usable slots
+    min_duration = min(t.estimated_minutes for t in schedulable)
+    free = find_free_slots(target_date, min_duration, start_hour, end_hour)
 
     if not free:
         return {
@@ -1083,16 +1046,18 @@ def _exec_suggest_schedule(args: dict) -> dict:
 
     # Greedily place tasks into free slots (first-fit, energy-sorted order)
     schedule   = []
-    cur_minute = free[0][0]  # earliest available minute
+    cur_minute = free[0]["start"].hour * 60 + free[0]["start"].minute
 
     for task in schedulable:
         duration = task.estimated_minutes
         placed   = False
 
-        for slot_start, slot_end in free:
+        for slot in free:
+            slot_start = slot["start"].hour * 60 + slot["start"].minute
+            slot_end = slot_start + slot["duration_minutes"]
             avail_start = max(cur_minute, slot_start)
             if avail_start >= slot_end:
-                continue  # Already past this slot
+                continue
             if (slot_end - avail_start) >= duration:
                 s_h, s_m = divmod(avail_start, 60)
                 e_h, e_m = divmod(avail_start + duration, 60)
@@ -1108,8 +1073,6 @@ def _exec_suggest_schedule(args: dict) -> dict:
                 cur_minute = avail_start + duration
                 placed = True
                 break
-
-        # If task didn't fit anywhere from cur_minute onwards, skip it (don't advance cursor)
 
     return {
         "date":              target_date.isoformat(),
@@ -1202,13 +1165,21 @@ def _exec_apply_schedule(args: dict) -> dict:
                 hour, minute = 9, 0
 
             from datetime import time as time_
-            scheduled_dt = datetime.combine(date_obj, time_(hour, minute))
+            start_dt = datetime.combine(date_obj, time_(hour, minute))
 
-            task = crud.update_task(task_id, scheduled_at=scheduled_dt)
+            # Get task duration to calculate end time
+            all_tasks = crud.get_tasks()
+            task_obj = next((t for t in all_tasks if t.id == task_id), None)
+            duration = (task_obj.estimated_minutes if task_obj and task_obj.estimated_minutes else 30)
+            end_dt = start_dt + timedelta(minutes=duration)
+
+            # Use atomic schedule_task: sets status + creates calendar event
+            task, event = crud.schedule_task(task_id, start_dt, end_dt)
             updated.append({
                 "task_id": task_id,
                 "title": task.title,
                 "scheduled_at": _dt_str(task.scheduled_at),
+                "event_id": event.id,
             })
 
         except Exception as exc:

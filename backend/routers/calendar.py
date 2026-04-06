@@ -82,7 +82,9 @@ def list_events(
 
 @router.post("/events", response_model=EventOut, status_code=201)
 def create_event(body: CreateEventRequest):
-    event = crud.create_event(
+    # For task_block events, use POST /api/tasks/{id}/schedule instead —
+    # it atomically creates the event AND updates the task status.
+    return crud.create_event(
         title=body.title,
         start_datetime=body.start_datetime,
         end_datetime=body.end_datetime,
@@ -91,13 +93,6 @@ def create_event(body: CreateEventRequest):
         location=body.location,
         task_id=body.task_id,
     )
-    # Auto-set task status to 'scheduled' when creating a task_block event
-    if body.task_id and body.event_type == "task_block":
-        try:
-            crud.update_task(body.task_id, status="scheduled", scheduled_at=str(body.start_datetime))
-        except (ValueError, Exception):
-            pass  # Don't fail event creation if task update fails
-    return event
 
 
 @router.put("/events/{event_id}", response_model=EventOut)

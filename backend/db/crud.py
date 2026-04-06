@@ -91,11 +91,16 @@ def create_task(
         return task
 
 
+VALID_TASK_STATUSES = {'todo', 'in_progress', 'scheduled', 'done', 'cancelled'}
+
+
 def update_task(
     task_id: int,
     current_updated_at: Optional[datetime] = None,
     **fields,
 ) -> Task:
+    if 'status' in fields and fields['status'] not in VALID_TASK_STATUSES:
+        raise ValueError(f"Invalid status: {fields['status']}")
     with get_session() as session:
         q = session.query(Task).filter(
             Task.id == task_id,
@@ -347,6 +352,23 @@ def delete_event(event_id: int) -> CalendarEvent:
                 f"Event {event_id} is a read-only Google Calendar event and cannot be deleted."
             )
         event.deleted_at = datetime.utcnow()
+
+        # Cascade: if this was a task_block with a linked task, reset the task
+        if event.event_type == "task_block" and event.task_id:
+            # Check if the task has any OTHER non-deleted task_block events
+            other_events = session.query(CalendarEvent).filter(
+                CalendarEvent.task_id == event.task_id,
+                CalendarEvent.event_type == "task_block",
+                CalendarEvent.deleted_at.is_(None),
+                CalendarEvent.id != event_id,
+            ).count()
+            if other_events == 0:
+                task = session.query(Task).filter(Task.id == event.task_id).first()
+                if task and task.status == "scheduled":
+                    task.status = "todo"
+                    task.scheduled_at = None
+                    task.updated_at = datetime.utcnow()
+
         session.flush()
         return event
 
@@ -996,3 +1018,128 @@ def set_preference(key: str, value: str) -> UserPreferences:
             session.add(row)
         session.flush()
         return row
+
+
+# ---------------------------------------------------------------------------
+#  Atomic scheduling operations
+# ---------------------------------------------------------------------------
+
+def schedule_task(
+    task_id: int,
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> tuple:
+    """
+    Atomically schedule a task: update task status + create calendar event.
+    Returns (task, event) tuple. Rolls back both if either fails.
+    """
+    with get_session() as session:
+        task = session.query(Task).filter(
+            Task.id == task_id,
+            Task.deleted_at.is_(None),
+        ).first()
+        if task is None:
+            raise ValueError(f"Task {task_id} not found or deleted.")
+
+        # Update task
+        task.status = "scheduled"
+        task.scheduled_at = start_datetime
+        task.updated_at = datetime.utcnow()
+
+        # Create calendar event
+        event = CalendarEvent(
+            title=task.title,
+            start_datetime=start_datetime,
+            end_datetime=end_datetime,
+            event_type="task_block",
+            task_id=task_id,
+            source="local",
+            is_read_only=False,
+            sync_stale=False,
+            is_recurring=False,
+        )
+        session.add(event)
+        session.flush()
+
+        if task.project_id:
+            _recalculate_goal_progress(session, task.project_id)
+
+        return (task, event)
+
+
+def unschedule_task(task_id: int) -> tuple:
+    """
+    Atomically unschedule a task: delete task_block events + reset task status.
+    Returns (task, deleted_event_ids) tuple.
+    """
+    with get_session() as session:
+        task = session.query(Task).filter(
+            Task.id == task_id,
+            Task.deleted_at.is_(None),
+        ).first()
+        if task is None:
+            raise ValueError(f"Task {task_id} not found or deleted.")
+
+        # Soft-delete all task_block events for this task
+        events = session.query(CalendarEvent).filter(
+            CalendarEvent.task_id == task_id,
+            CalendarEvent.event_type == "task_block",
+            CalendarEvent.deleted_at.is_(None),
+        ).all()
+        deleted_ids = []
+        for event in events:
+            event.deleted_at = datetime.utcnow()
+            deleted_ids.append(event.id)
+
+        # Reset task
+        task.status = "todo"
+        task.scheduled_at = None
+        task.updated_at = datetime.utcnow()
+        session.flush()
+
+        if task.project_id:
+            _recalculate_goal_progress(session, task.project_id)
+
+        return (task, deleted_ids)
+
+
+def schedule_task_batch(
+    items: list,
+) -> list:
+    """
+    Atomically schedule multiple tasks. Each item is (task_id, start_datetime, end_datetime).
+    Returns list of (task, event) tuples. All or nothing.
+    """
+    with get_session() as session:
+        results = []
+        for task_id, start_dt, end_dt in items:
+            task = session.query(Task).filter(
+                Task.id == task_id,
+                Task.deleted_at.is_(None),
+            ).first()
+            if task is None:
+                raise ValueError(f"Task {task_id} not found or deleted.")
+
+            task.status = "scheduled"
+            task.scheduled_at = start_dt
+            task.updated_at = datetime.utcnow()
+
+            event = CalendarEvent(
+                title=task.title,
+                start_datetime=start_dt,
+                end_datetime=end_dt,
+                event_type="task_block",
+                task_id=task_id,
+                source="local",
+                is_read_only=False,
+                sync_stale=False,
+                is_recurring=False,
+            )
+            session.add(event)
+            session.flush()
+
+            if task.project_id:
+                _recalculate_goal_progress(session, task.project_id)
+
+            results.append((task, event))
+        return results

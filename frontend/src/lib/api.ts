@@ -100,6 +100,19 @@ export const tasks = {
 
   parseDate: (text: string) =>
     post<{ date: string }>('/tasks/parse-date', { text }),
+
+  // Scheduling — atomic backend operations
+  findSlots: (body: { task_id: number; count?: number; start_date?: string }) =>
+    post<{ slots: Array<{ start: string; end: string; date: string }> }>('/tasks/find-slots', body),
+
+  schedule: (taskId: number, body: { start_datetime: string; end_datetime: string }) =>
+    post<{ task: Task; event: CalendarEvent }>(`/tasks/${taskId}/schedule`, body),
+
+  scheduleBatch: (body: { items?: Array<{ task_id: number; start_datetime: string; end_datetime: string }>; task_ids?: number[]; start_date?: string }) =>
+    post<{ scheduled: Array<{ task: Task; event: CalendarEvent }>; failed: Array<{ task_id: number; error: string }> }>('/tasks/schedule-batch', body),
+
+  unschedule: (taskId: number) =>
+    post<{ task: Task; deleted_event_ids: number[] }>(`/tasks/${taskId}/unschedule`, {}),
 }
 
 // ---------------------------------------------------------------------------
