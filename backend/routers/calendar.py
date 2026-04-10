@@ -106,6 +106,22 @@ def update_event(event_id: int, body: UpdateEventRequest):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+class MoveEventRequest(BaseModel):
+    start_datetime: datetime
+    end_datetime: datetime
+
+
+@router.put("/events/{event_id}/move", response_model=EventOut)
+def move_event(event_id: int, body: MoveEventRequest):
+    """Atomically move/resize an event. Also updates linked task's scheduled_at."""
+    try:
+        return crud.move_event(event_id, body.start_datetime, body.end_datetime)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
 @router.delete("/events/{event_id}")
 def delete_event(event_id: int):
     try:

@@ -2,6 +2,10 @@ import { useState, useEffect, useRef, useMemo, useCallback, type SyntheticEvent 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import { Calendar as BigCalendar, dateFnsLocalizer, type View } from 'react-big-calendar'
+// Rolldown-safe CJS import: namespace import + explicit .default access
+// (Rolldown ignores __esModule flag when importer has "type": "module")
+import * as DnDAddon from 'react-big-calendar/lib/addons/dragAndDrop'
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import {
   format, parse, startOfWeek, endOfWeek, getDay,
   startOfMonth, endOfMonth, eachDayOfInterval,
@@ -19,7 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { calendar, tasks as tasksApi, projects as projectsApi } from '../lib/api'
-import { getProjectColor, NO_PROJECT_COLOR } from '../lib/colors'
+import { getProjectColor, NO_PROJECT_COLOR, getContrastColor } from '../lib/colors'
 import { parseUTCDate, toDatetimeLocal } from '../lib/datetime'
 import type { CalendarEvent, EventType, Task, Goal } from '../types'
 
@@ -35,6 +39,41 @@ const localizer = dateFnsLocalizer({
   getDay,
   locales,
 })
+
+/**
+ * react-big-calendar DnD addon — imported directly from withDragAndDrop.js
+ * to avoid CJS→ESM index.js interop issues with Vite 8/Rolldown.
+ * The HOC erases generic types, so we define a typed props interface.
+ */
+interface DnDCalendarProps {
+  localizer: ReturnType<typeof dateFnsLocalizer>
+  events: BigCalEvent[]
+  view: View
+  date: Date
+  onView: (v: View) => void
+  onNavigate: (d: Date) => void
+  onSelectEvent: (event: object, e: SyntheticEvent) => void
+  onSelectSlot: (slot: { start: Date; end: Date }) => void
+  onEventDrop: (args: { event: BigCalEvent; start: string | Date; end: string | Date }) => void
+  onEventResize: (args: { event: BigCalEvent; start: string | Date; end: string | Date }) => void
+  draggableAccessor: (event: BigCalEvent) => boolean
+  resizable: boolean
+  selectable: boolean
+  toolbar: boolean
+  style: React.CSSProperties
+  eventPropGetter: (e: object) => { style: React.CSSProperties }
+  components: object
+  views: View[]
+  popup: boolean
+}
+// Rolldown double-nests CJS default exports: DnDAddon.default.default is the actual function
+// Walk the .default chain until we find the function
+let dndHoc = DnDAddon as unknown
+while (dndHoc && typeof dndHoc !== 'function' && typeof (dndHoc as Record<string, unknown>).default !== 'undefined') {
+  dndHoc = (dndHoc as Record<string, unknown>).default
+}
+const withDragAndDrop = dndHoc as (cal: typeof BigCalendar) => React.ComponentType<DnDCalendarProps>
+const DnDCalendar = withDragAndDrop(BigCalendar)
 
 // ---------------------------------------------------------------------------
 // Event colour helpers
@@ -60,14 +99,11 @@ function getEventColor(
   if (event.event_type === 'task_block') {
     if (event.task_id) {
       const task = tasksList.find(t => t.id === event.task_id)
-      if (task) {
-        if (task.project_id != null) {
-          return getProjectColor(task.project_id, projectsList)
-        }
-        return '#4F46E5' // task exists but has no project — indigo
+      if (task && task.project_id != null) {
+        return getProjectColor(task.project_id, projectsList)
       }
     }
-    return '#6366F1' // task_block with no task linked — slate-indigo
+    return NO_PROJECT_COLOR // task_block without project → grey
   }
   return EVENT_COLOURS[event.event_type] ?? '#94A3B8'
 }
@@ -374,13 +410,15 @@ function CalendarEventBlock({ event }: { event: BigCalEvent }) {
 // Event form dialog
 // ---------------------------------------------------------------------------
 
-function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksList }: {
+function EventFormDialog({ open, onClose, onSave, initial, defaultStart, defaultEnd, tasksList, projectsList = [] }: {
   open: boolean
   onClose: () => void
   onSave: (data: Partial<CalendarEvent>, id?: number) => void
   initial?: CalendarEvent | null
   defaultStart?: Date
+  defaultEnd?: Date
   tasksList: Task[]
+  projectsList?: Goal[]
 }) {
   // Convert a UTC Date to a local datetime-local input string
   const toLocal = (d: Date) => toDatetimeLocal(d)
@@ -410,7 +448,7 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
       // Round up to next 15-minute mark
       const mins = base.getMinutes()
       base.setMinutes(Math.ceil(mins / 15) * 15, 0, 0)
-      const endDate = new Date(base.getTime() + 30 * 60_000) // +30min default
+      const endDate = defaultEnd ?? new Date(base.getTime() + 30 * 60_000)
       setTitle(''); setType('personal'); setLocation(''); setDesc(''); setTaskId(undefined)
       setStart(toDatetimeLocal(base))
       setEnd(toDatetimeLocal(endDate))
@@ -458,7 +496,19 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
     onClose()
   }
 
-  const activeTasks = tasksList.filter(t => !t.deleted_at && t.status !== 'done')
+  // Show unscheduled tasks only (todo, in_progress), ordered by priority then due date
+  const PRIO_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
+  const activeTasks = tasksList
+    .filter(t => !t.deleted_at && (t.status === 'todo' || t.status === 'in_progress'))
+    .sort((a, b) => {
+      const pa = PRIO_ORDER[a.priority] ?? 2
+      const pb = PRIO_ORDER[b.priority] ?? 2
+      if (pa !== pb) return pa - pb
+      if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
+      if (a.due_date) return -1
+      if (b.due_date) return 1
+      return 0
+    })
 
   const newEventForm = (
     <div className="space-y-4 pt-2">
@@ -545,11 +595,21 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
                     <SelectTrigger className="mt-1"><SelectValue placeholder="Choose a task…" /></SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">Choose a task…</SelectItem>
-                      {activeTasks.map(t => (
-                        <SelectItem key={t.id} value={String(t.id)}>
-                          {t.title}{t.estimated_minutes ? ` — ${t.estimated_minutes}min` : ''}
-                        </SelectItem>
-                      ))}
+                      {activeTasks.map(t => {
+                        const color = getProjectColor(t.project_id, projectsList)
+                        const due = t.due_date ? new Date(t.due_date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''
+                        const dur = t.estimated_minutes ? (t.estimated_minutes < 60 ? `${t.estimated_minutes}m` : `${(t.estimated_minutes / 60).toFixed(1).replace('.0', '')}h`) : ''
+                        return (
+                          <SelectItem key={t.id} value={String(t.id)}>
+                            <span className="flex items-center gap-1.5 w-full">
+                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                              <span className="truncate flex-1">{t.title}</span>
+                              {due && <span className="text-[10px] text-slate-400 shrink-0">{due}</span>}
+                              {dur && <span className="text-[10px] text-slate-400 shrink-0">{dur}</span>}
+                            </span>
+                          </SelectItem>
+                        )
+                      })}
                     </SelectContent>
                   </Select>
                 </div>
@@ -576,6 +636,7 @@ export function Calendar() {
   const [formOpen, setFormOpen] = useState(false)
   const [editing, setEditing]   = useState<CalendarEvent | null>(null)
   const [defStart, setDefStart] = useState<Date | undefined>()
+  const [defEnd, setDefEnd]     = useState<Date | undefined>()
   const [syncing, setSyncing]       = useState(false)
   const [popover, setPopover]       = useState<PopoverState | null>(null)
   const [hidden, setHidden]         = useState<Set<string>>(new Set())
@@ -704,6 +765,24 @@ export function Calendar() {
     }
   }
 
+  async function handleEventMove({ event, start, end }: { event: BigCalEvent; start: string | Date; end: string | Date }) {
+    const resource = event.resource
+    if (!resource || resource.is_read_only) return
+    const startDt = start instanceof Date ? start : new Date(start)
+    const endDt = end instanceof Date ? end : new Date(end)
+    try {
+      // Atomic: moves event + updates linked task.scheduled_at in one transaction
+      await calendar.moveEvent(resource.id, {
+        start_datetime: startDt.toISOString(),
+        end_datetime: endDt.toISOString(),
+      })
+      qc.invalidateQueries({ queryKey: ['events'] })
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+    } catch {
+      toast.error('Failed to move event')
+    }
+  }
+
   function handleEventClick(event: BigCalEvent, e: SyntheticEvent) {
     const target = e.target as HTMLElement
     const el     = target.closest('.rbc-event') as HTMLElement | null
@@ -724,9 +803,9 @@ export function Calendar() {
     return {
       style: {
         backgroundColor: colour,
-        border: 'none',
+        border: colour === NO_PROJECT_COLOR ? '1px solid #CBD5E1' : 'none',
         borderRadius: '4px',
-        color: '#fff',
+        color: getContrastColor(colour),
         padding: '1px 4px',
       },
     }
@@ -845,19 +924,24 @@ export function Calendar() {
             {isLoading ? (
               <div className="w-full h-full bg-slate-50 animate-pulse" />
             ) : (
-              <BigCalendar
+              <DnDCalendar
                 localizer={localizer}
                 events={bigCalEvents}
                 view={view}
                 date={date}
-                onView={v => setView(v)}
+                onView={v => setView(v as View)}
                 onNavigate={d => setDate(d)}
-                onSelectEvent={(event, e) => handleEventClick(event as BigCalEvent, e)}
-                onSelectSlot={slot => {
+                onSelectEvent={(event, e) => handleEventClick(event as BigCalEvent, e as SyntheticEvent)}
+                onSelectSlot={(slot: { start: Date; end: Date }) => {
                   setEditing(null)
                   setDefStart(slot.start)
+                  setDefEnd(slot.end && slot.end.getTime() !== slot.start.getTime() ? slot.end : undefined)
                   setFormOpen(true)
                 }}
+                onEventDrop={handleEventMove}
+                onEventResize={handleEventMove}
+                draggableAccessor={(event: BigCalEvent) => !event.resource?.is_read_only}
+                resizable
                 selectable
                 toolbar={false}
                 style={{ height: '100%' }}
@@ -892,6 +976,7 @@ export function Calendar() {
         onSave={handleSave}
         initial={editing}
         defaultStart={defStart}
+        defaultEnd={defEnd}
         tasksList={tasksList}
       />
     </div>

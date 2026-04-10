@@ -339,6 +339,32 @@ def update_event(event_id: int, **fields) -> CalendarEvent:
         return event
 
 
+def move_event(
+    event_id: int,
+    start_datetime: datetime,
+    end_datetime: datetime,
+) -> CalendarEvent:
+    """Atomically move/resize an event. Updates linked task's scheduled_at too."""
+    with get_session() as session:
+        event = session.query(CalendarEvent).filter(
+            CalendarEvent.id == event_id,
+            CalendarEvent.deleted_at.is_(None),
+        ).first()
+        if event is None:
+            raise ValueError(f"Event {event_id} not found or deleted.")
+        if event.is_read_only:
+            raise PermissionError(f"Event {event_id} is read-only.")
+        event.start_datetime = start_datetime
+        event.end_datetime = end_datetime
+        if event.event_type == "task_block" and event.task_id:
+            task = session.query(Task).filter(Task.id == event.task_id).first()
+            if task:
+                task.scheduled_at = start_datetime
+                task.updated_at = datetime.utcnow()
+        session.flush()
+        return event
+
+
 def delete_event(event_id: int) -> CalendarEvent:
     with get_session() as session:
         event = session.query(CalendarEvent).filter(

@@ -233,6 +233,9 @@ export const calendar = {
   updateEvent: (id: number, body: UpdateEventRequest) =>
     put<CalendarEvent>(`/calendar/events/${id}`, body),
 
+  moveEvent: (id: number, body: { start_datetime: string; end_datetime: string }) =>
+    put<CalendarEvent>(`/calendar/events/${id}/move`, body),
+
   deleteEvent: (id: number) =>
     del(`/calendar/events/${id}`),
 
