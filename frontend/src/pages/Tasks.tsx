@@ -687,9 +687,7 @@ function KanbanCard({ task, projectsList, onSelect }: {
   return (
     <div className="card-hover p-3 cursor-pointer" onClick={() => onSelect(task)}>
       <div className="flex items-start gap-2 mb-2">
-        {task.project_id && (
-          <div className="w-2 h-2 rounded-full shrink-0 mt-1" style={{ backgroundColor: projectColor }} />
-        )}
+        <div className="w-2.5 h-2.5 rounded-full shrink-0 mt-1" style={{ backgroundColor: task.project_id ? projectColor : '#E2E8F0' }} />
         <span className="text-sm text-slate-800 dark:text-slate-200 leading-snug flex-1">{task.title}</span>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
@@ -1303,7 +1301,7 @@ export function Tasks() {
               <TaskListHeader />
               {groups.map(([group, groupTasks]) => (
                 <div key={group}>
-                  <div className="section-header px-4">{group}</div>
+                  <div className="section-header px-4">{STATUS_LABELS[group as TaskStatus] ?? group}</div>
                   {groupTasks.map(t => (
                     <TaskRow
                       key={t.id}
