@@ -30,6 +30,13 @@ async def lifespan(app: FastAPI):
         if "color" not in cols:
             conn.execute(text("ALTER TABLE goals ADD COLUMN color TEXT"))
             conn.commit()
+    # Migrate: convert cancelled tasks to soft-deleted (cancelled status removed)
+    with engine.connect() as conn:
+        conn.execute(text(
+            "UPDATE tasks SET deleted_at = CURRENT_TIMESTAMP, status = 'todo' "
+            "WHERE status = 'cancelled' AND deleted_at IS NULL"
+        ))
+        conn.commit()
     # Seed demo data on first run (no-op if data already exists)
     seed_database()
     # Warn if AI features will be unavailable

@@ -137,7 +137,7 @@ _GET_TASKS: dict = {
             },
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "scheduled", "done", "cancelled"],
+                "enum": ["todo", "in_progress", "scheduled", "done"],
                 "description": "Filter by task status.",
             },
             "priority": {
@@ -186,7 +186,7 @@ _CREATE_TASK: dict = {
             },
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "scheduled", "done", "cancelled"],
+                "enum": ["todo", "in_progress", "scheduled", "done"],
                 "description": "Initial status. Defaults to 'todo'.",
             },
             "priority": {
@@ -238,7 +238,7 @@ _UPDATE_TASK: dict = {
             "description": {"type": "string"},
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "scheduled", "done", "cancelled"],
+                "enum": ["todo", "in_progress", "scheduled", "done"],
             },
             "priority": {
                 "type": "string",

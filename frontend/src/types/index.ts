@@ -1,6 +1,6 @@
 // Mirrors the Python SQLAlchemy schema exactly
 
-export type TaskStatus = 'todo' | 'in_progress' | 'scheduled' | 'done' | 'cancelled'
+export type TaskStatus = 'todo' | 'in_progress' | 'scheduled' | 'done'
 export type Priority = 'low' | 'medium' | 'high' | 'urgent'
 export type EnergyLevel = 'low' | 'medium' | 'high'
 export type ProjectStatus = 'active' | 'paused' | 'completed' | 'archived'

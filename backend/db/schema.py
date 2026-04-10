@@ -16,7 +16,7 @@ class Task(Base):
     id                 = Column(Integer, primary_key=True, autoincrement=True)
     title              = Column(Text, nullable=False)
     description        = Column(Text)
-    status             = Column(Text, default="todo")       # todo | in_progress | scheduled | done | cancelled
+    status             = Column(Text, default="todo")       # todo | in_progress | scheduled | done
     priority           = Column(Text, default="medium")     # low | medium | high | urgent
     due_date           = Column(Date)
     project_id         = Column(Integer, ForeignKey("goals.id"), nullable=True)

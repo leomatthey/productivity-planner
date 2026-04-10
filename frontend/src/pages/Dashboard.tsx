@@ -20,7 +20,7 @@ function isToday(dateStr?: string): boolean {
 
 function isOverdue(task: Task): boolean {
   if (!task.due_date) return false
-  if (task.status === 'done' || task.status === 'cancelled') return false
+  if (task.status === 'done') return false
   return task.due_date < today()
 }
 
@@ -159,7 +159,7 @@ export function Dashboard() {
   })
 
   // Derived metrics
-  const todayTasks  = allTasks.filter(t => isToday(t.due_date) && t.status !== 'cancelled')
+  const todayTasks  = allTasks.filter(t => isToday(t.due_date))
   const overdueTasks = allTasks.filter(t => isOverdue(t))
   // todayHabits would be used by a "pending" counter — not currently displayed
   const doneHabits  = allHabits.filter(h => h.today_done).length

@@ -28,10 +28,10 @@ interface SlotProposal {
 // ---------------------------------------------------------------------------
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
-  todo: 'To Do', in_progress: 'In Progress', scheduled: 'Scheduled', done: 'Done', cancelled: 'Cancelled',
+  todo: 'To Do', in_progress: 'In Progress', scheduled: 'Scheduled', done: 'Done',
 }
 const PRIORITY_ORDER: Priority[] = ['urgent', 'high', 'medium', 'low']
-const STATUS_ORDER: TaskStatus[] = ['in_progress', 'scheduled', 'todo', 'done', 'cancelled']
+const STATUS_ORDER: TaskStatus[] = ['in_progress', 'scheduled', 'todo', 'done']
 const ENERGY_LEVELS: EnergyLevel[] = ['low', 'medium', 'high']
 
 const DURATION_OPTIONS = [
@@ -66,7 +66,6 @@ function statusClass(s: TaskStatus): string {
   return s === 'done'        ? 'badge-done'
     : s === 'in_progress' ? 'badge-in_progress'
     : s === 'scheduled'   ? 'badge-scheduled'
-    : s === 'cancelled'   ? 'badge-cancelled'
     : 'badge-todo'
 }
 
@@ -781,7 +780,7 @@ function SmartSchedulePanel({ allTasks, events }: {
   )
 
   const unscheduledTasks = allTasks.filter(
-    t => !t.scheduled_at && t.status !== 'done' && t.status !== 'cancelled' && t.status !== 'scheduled' && !t.deleted_at,
+    t => !t.scheduled_at && t.status !== 'done' && t.status !== 'scheduled' && !t.deleted_at,
   )
 
   function toggleId(id: number) {
@@ -1157,8 +1156,8 @@ export function Tasks() {
     return list
   }, [allTasks, search, sortBy])
 
-  const activeTasks    = filtered.filter(t => t.status !== 'done' && t.status !== 'cancelled')
-  const completedTasks = filtered.filter(t => t.status === 'done' || t.status === 'cancelled')
+  const activeTasks    = filtered.filter(t => t.status !== 'done')
+  const completedTasks = filtered.filter(t => t.status === 'done')
   const groups         = groupByFn(activeTasks, groupBy)
 
   function openModal(task: Task) {

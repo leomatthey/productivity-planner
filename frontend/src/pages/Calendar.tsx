@@ -458,7 +458,7 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
     onClose()
   }
 
-  const activeTasks = tasksList.filter(t => !t.deleted_at && t.status !== 'done' && t.status !== 'cancelled')
+  const activeTasks = tasksList.filter(t => !t.deleted_at && t.status !== 'done')
 
   const newEventForm = (
     <div className="space-y-4 pt-2">

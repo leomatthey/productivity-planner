@@ -32,7 +32,6 @@ export const taskStatus = {
   todo:        { bg: '#F1F5F9', text: '#475569', label: 'To Do' },
   in_progress: { bg: '#EEF2FF', text: '#4F46E5', label: 'In Progress' },
   done:        { bg: '#D1FAE5', text: '#059669', label: 'Done' },
-  cancelled:   { bg: 'transparent', text: '#94A3B8', label: 'Cancelled' },
 } as const
 
 export const goalStatus = {

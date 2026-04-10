@@ -45,7 +45,7 @@ def _build_system_prompt() -> str:
         overdue_tasks = [
             t for t in all_active_tasks
             if t.due_date and t.due_date < today
-            and t.status not in ("done", "cancelled")
+            and t.status != "done"
         ]
         overdue_count = len(overdue_tasks)
     except Exception:

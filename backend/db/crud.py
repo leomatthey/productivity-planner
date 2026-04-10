@@ -91,7 +91,7 @@ def create_task(
         return task
 
 
-VALID_TASK_STATUSES = {'todo', 'in_progress', 'scheduled', 'done', 'cancelled'}
+VALID_TASK_STATUSES = {'todo', 'in_progress', 'scheduled', 'done'}
 
 
 def update_task(
@@ -782,10 +782,9 @@ def get_analytics_stats() -> dict:
         task_completed = sum(1 for t in all_tasks if t.status == "done")
         task_in_progress = sum(1 for t in all_tasks if t.status == "in_progress")
         task_todo = sum(1 for t in all_tasks if t.status == "todo")
-        task_cancelled = sum(1 for t in all_tasks if t.status == "cancelled")
         task_overdue = sum(
             1 for t in all_tasks
-            if t.due_date and t.due_date < today and t.status not in ("done", "cancelled")
+            if t.due_date and t.due_date < today and t.status != "done"
         )
 
         # Completion by week — last 8 complete weeks (Mon → Sun)
@@ -912,7 +911,7 @@ def get_analytics_stats() -> dict:
                 "completed": task_completed,
                 "in_progress": task_in_progress,
                 "todo": task_todo,
-                "cancelled": task_cancelled,
+                "cancelled": 0,  # Deprecated: cancelled status removed, tasks are deleted instead
                 "overdue": task_overdue,
                 "completion_rate": round(task_completed / task_total * 100, 1) if task_total else 0.0,
                 "completion_by_week": completion_by_week,
