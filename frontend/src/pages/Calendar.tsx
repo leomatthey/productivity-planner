@@ -20,7 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { calendar, tasks as tasksApi, projects as projectsApi } from '../lib/api'
 import { getProjectColor } from '../lib/colors'
-import { parseUTCDate } from '../lib/datetime'
+import { parseUTCDate, toDatetimeLocal } from '../lib/datetime'
 import type { CalendarEvent, EventType, Task, Goal } from '../types'
 
 // ---------------------------------------------------------------------------
@@ -382,7 +382,8 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
   defaultStart?: Date
   tasksList: Task[]
 }) {
-  const toLocal = (iso: string) => iso.slice(0, 16)
+  // Convert a UTC Date to a local datetime-local input string
+  const toLocal = (d: Date) => toDatetimeLocal(d)
 
   const [activeTab, setActiveTab] = useState('new')
   const [selectedTaskId, setSelectedTaskId] = useState<string>('__none__')
@@ -398,8 +399,8 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
   useEffect(() => {
     if (initial) {
       setTitle(initial.title)
-      setStart(toLocal(initial.start_datetime))
-      setEnd(toLocal(initial.end_datetime))
+      setStart(toLocal(toUTC(initial.start_datetime)))
+      setEnd(toLocal(toUTC(initial.end_datetime)))
       setType(initial.event_type as EventType)
       setLocation(initial.location ?? '')
       setDesc(initial.description ?? '')
@@ -408,8 +409,8 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
       const base = defaultStart ?? new Date()
       const endDate = new Date(base); endDate.setHours(endDate.getHours() + 1)
       setTitle(''); setType('personal'); setLocation(''); setDesc(''); setTaskId(undefined)
-      setStart(base.toISOString().slice(0, 16))
-      setEnd(endDate.toISOString().slice(0, 16))
+      setStart(toDatetimeLocal(base))
+      setEnd(toDatetimeLocal(endDate))
     }
     setActiveTab('new')
     setSelectedTaskId('__none__')
@@ -425,12 +426,16 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
     setDesc(task.description ?? '')
     setType('task_block')
     setTaskId(task.id)
-    const base = task.scheduled_at ? new Date(task.scheduled_at) : (defaultStart ?? new Date())
-    base.setHours(9, 0, 0, 0)
-    const durationMs = (task.estimated_minutes ?? 60) * 60 * 1000
+    // Use clicked calendar slot or current time (rounded to next 15min), not hardcoded 9:00
+    const base = defaultStart ? new Date(defaultStart) : new Date()
+    if (!defaultStart) {
+      const mins = base.getMinutes()
+      base.setMinutes(Math.ceil(mins / 15) * 15, 0, 0)
+    }
+    const durationMs = (task.estimated_minutes ?? 30) * 60_000
     const endDate = new Date(base.getTime() + durationMs)
-    setStart(base.toISOString().slice(0, 16))
-    setEnd(endDate.toISOString().slice(0, 16))
+    setStart(toDatetimeLocal(base))
+    setEnd(toDatetimeLocal(endDate))
     // Switch to New Event tab so user can review
     setActiveTab('new')
   }
@@ -470,7 +475,7 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
               const selectedTask = taskId ? tasksList.find(t => t.id === taskId) : undefined
               const durationMs = (selectedTask?.estimated_minutes ?? 30) * 60_000
               const endDate = new Date(startDate.getTime() + durationMs)
-              setEnd(endDate.toISOString().slice(0, 16))
+              setEnd(toDatetimeLocal(endDate))
             }
           }} className="mt-1 h-8" />
         </div>

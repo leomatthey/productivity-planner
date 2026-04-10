@@ -7,6 +7,8 @@ services:
       - db-data:/app/data
     env_file:
       - ./backend/.env
+    environment:
+      - TZ=${TZ:-Europe/Madrid}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 10s

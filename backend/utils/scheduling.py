@@ -32,7 +32,8 @@ def find_free_slots(
     work_end_min = work_end_hour * 60
 
     # For today: clamp work start to current time
-    now = datetime.utcnow()
+    # Use local time (Docker TZ must be set to user's timezone)
+    now = datetime.now()
     effective_start_min = work_start_min
     if target_date == now.date():
         now_min = now.hour * 60 + now.minute

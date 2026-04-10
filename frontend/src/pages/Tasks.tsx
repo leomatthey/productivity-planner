@@ -393,7 +393,7 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
   }
 
   const scheduledDisplay = scheduledAt
-    ? new Date(scheduledAt).toLocaleString([], {
+    ? parseUTCDate(scheduledAt).toLocaleString([], {
         weekday: 'short', month: 'short', day: 'numeric',
         hour: '2-digit', minute: '2-digit',
       })
