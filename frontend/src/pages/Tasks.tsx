@@ -124,13 +124,13 @@ const SKELETON_ROWS = Array.from({ length: 5 })
 interface QuickAddProps {
   onCreate: (title: string, extra: Partial<Task>) => void
   isCreating: boolean
-  textRef?: React.MutableRefObject<string>
+  textRef?: React.MutableRefObject<{ value: string; clear: () => void }>
 }
 
 function QuickAdd({ onCreate, isCreating, textRef }: QuickAddProps) {
   const [text, setText] = useState('')
   const [parsing, setParsing] = useState(false)
-  if (textRef) textRef.current = text
+  if (textRef) textRef.current = { value: text, clear: () => setText('') }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -166,8 +166,28 @@ function QuickAdd({ onCreate, isCreating, textRef }: QuickAddProps) {
 }
 
 // ---------------------------------------------------------------------------
-// TaskRow — clean grid layout: toggle | dot | title | status | due | duration | priority | delete
+// TaskRow — clean grid layout with column headers
 // ---------------------------------------------------------------------------
+
+const TASK_GRID_COLS = '24px 10px minmax(180px,1fr) 88px 72px 56px 76px 20px'
+
+function TaskListHeader() {
+  return (
+    <div
+      className="grid items-center gap-2 px-3 py-1.5 border-b border-slate-100 dark:border-slate-800 sticky top-0 bg-white dark:bg-slate-900 z-[1]"
+      style={{ gridTemplateColumns: TASK_GRID_COLS }}
+    >
+      <span />
+      <span />
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Task</span>
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest text-center">Status</span>
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest text-center">Due</span>
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest text-center">Time</span>
+      <span className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest text-center">Priority</span>
+      <span />
+    </div>
+  )
+}
 
 interface TaskRowProps {
   task: Task
@@ -190,8 +210,8 @@ function TaskRow({ task, projectsList, onToggle, onSelect, onDelete }: TaskRowPr
 
   return (
     <div
-      className={`grid items-center gap-2 px-3 py-2 rounded-sm group hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer ${done ? 'opacity-50' : ''}`}
-      style={{ gridTemplateColumns: '20px 8px 1fr 80px 70px 55px 70px 16px' }}
+      className={`grid items-center gap-2 px-3 py-2 border-b border-slate-50 dark:border-slate-800/50 group hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors ${done ? 'opacity-45' : ''}`}
+      style={{ gridTemplateColumns: TASK_GRID_COLS }}
       onClick={() => onSelect(task)}
     >
       <button
@@ -201,23 +221,23 @@ function TaskRow({ task, projectsList, onToggle, onSelect, onDelete }: TaskRowPr
         {done ? <CheckCircle2 size={16} className="text-success" /> : <Circle size={16} />}
       </button>
 
-      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: task.project_id ? projectColor : 'transparent' }} />
+      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: task.project_id ? projectColor : '#E2E8F0' }} />
 
-      <span className={`text-sm truncate ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
+      <span className={`text-sm truncate ${done ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-200 font-medium'}`}>
         {task.title}
       </span>
 
-      <span className={`${statusClass(task.status as TaskStatus)} text-center`}>
+      <span className={`${statusClass(task.status as TaskStatus)} justify-center`}>
         {STATUS_LABELS[task.status as TaskStatus]}
       </span>
 
-      <span className={`text-xs text-center ${overdue ? 'text-danger font-medium' : 'text-slate-400'}`}>
+      <span className={`text-xs text-center ${overdue ? 'text-danger font-semibold' : 'text-slate-400'}`}>
         {dueDateLabel}
       </span>
 
       <span className="text-xs text-slate-400 text-center">{durationLabel}</span>
 
-      <span className={`${priorityClass(task.priority as Priority)} text-center`}>{task.priority}</span>
+      <span className={`${priorityClass(task.priority as Priority)} justify-center`}>{task.priority}</span>
 
       <button
         className="text-slate-300 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
@@ -495,8 +515,8 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
               </Select>
             </div>
 
-            {/* ── Scheduling ── */}
-            <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
+            {/* ── Scheduling (edit mode only — task must exist to schedule) ── */}
+            {task && <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Schedule</span>
                 {scheduledDisplay && (
@@ -592,7 +612,12 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
                   )}
                 </>
               )}
-            </div>
+            </div>}
+            {!task && (
+              <p className="text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-3">
+                Save the task first, then open it to schedule.
+              </p>
+            )}
 
             <div className="pt-2 space-y-2 border-t border-slate-100 dark:border-slate-700">
               <Button onClick={handleSave} className="w-full">Save</Button>
@@ -1027,7 +1052,7 @@ export function Tasks() {
   const [filterProject, setFProject] = useState<string>('all')
   const [selected, setSelected]    = useState<Task | null>(null)
   const [createTitle, setCreateTitle] = useState('')
-  const quickAddTextRef = useRef('')
+  const quickAddTextRef = useRef<{ value: string; clear: () => void }>({ value: '', clear: () => {} })
   const [modalOpen, setModalOpen]  = useState(false)
 
   const undoRef = useRef<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null)
@@ -1246,7 +1271,7 @@ export function Tasks() {
           variant="outline"
           size="sm"
           className="h-9 shrink-0"
-          onClick={() => { setCreateTitle(quickAddTextRef.current); setSelected(null); setModalOpen(true) }}
+          onClick={() => { setCreateTitle(quickAddTextRef.current.value); quickAddTextRef.current.clear(); setSelected(null); setModalOpen(true) }}
         >
           Add Details
         </Button>
@@ -1274,7 +1299,8 @@ export function Tasks() {
                 : 'No tasks yet — add one above!'}
             </p>
           ) : (
-            <div className="py-2">
+            <div>
+              <TaskListHeader />
               {groups.map(([group, groupTasks]) => (
                 <div key={group}>
                   <div className="section-header px-4">{group}</div>
