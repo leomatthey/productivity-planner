@@ -426,12 +426,13 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
     setDesc(task.description ?? '')
     setType('task_block')
     setTaskId(task.id)
-    // Use clicked calendar slot or current time (rounded to next 15min), not hardcoded 9:00
-    const base = defaultStart ? new Date(defaultStart) : new Date()
-    if (!defaultStart) {
-      const mins = base.getMinutes()
-      base.setMinutes(Math.ceil(mins / 15) * 15, 0, 0)
-    }
+    // Use clicked calendar slot or current time, rounded up to next 15min
+    const now = new Date()
+    const base = defaultStart ? new Date(defaultStart) : new Date(now)
+    // If the base time is in the past, use now instead and round up
+    if (base < now) base.setTime(now.getTime())
+    const mins = base.getMinutes()
+    base.setMinutes(Math.ceil(mins / 15) * 15, 0, 0)
     const durationMs = (task.estimated_minutes ?? 30) * 60_000
     const endDate = new Date(base.getTime() + durationMs)
     setStart(toDatetimeLocal(base))
