@@ -124,11 +124,13 @@ const SKELETON_ROWS = Array.from({ length: 5 })
 interface QuickAddProps {
   onCreate: (title: string, extra: Partial<Task>) => void
   isCreating: boolean
+  textRef?: React.MutableRefObject<string>
 }
 
-function QuickAdd({ onCreate, isCreating }: QuickAddProps) {
+function QuickAdd({ onCreate, isCreating, textRef }: QuickAddProps) {
   const [text, setText] = useState('')
   const [parsing, setParsing] = useState(false)
+  if (textRef) textRef.current = text
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -148,25 +150,23 @@ function QuickAdd({ onCreate, isCreating }: QuickAddProps) {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex gap-2">
-      <div className="relative flex-1">
-        <Plus size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-        <Input
-          value={text}
-          onChange={e => setText(e.target.value)}
-          placeholder='Add task… e.g. "Review deck by Friday"'
-          className="pl-8"
-        />
-      </div>
-      <Button type="submit" disabled={!text.trim() || isCreating || parsing} size="sm">
-        {isCreating || parsing ? <Loader2 size={14} className="animate-spin" /> : 'Add'}
-      </Button>
+    <form onSubmit={handleSubmit} className="flex-1 relative">
+      <Plus size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      <Input
+        value={text}
+        onChange={e => setText(e.target.value)}
+        placeholder='Add task… press Enter to add, or click "Add Details"'
+        className="pl-8"
+        disabled={isCreating || parsing}
+      />
+      {/* Hidden submit button so Enter works */}
+      <button type="submit" className="hidden" />
     </form>
   )
 }
 
 // ---------------------------------------------------------------------------
-// TaskRow — redesigned with project color circle, project name, structured cols
+// TaskRow — clean grid layout: toggle | dot | title | status | due | duration | priority | delete
 // ---------------------------------------------------------------------------
 
 interface TaskRowProps {
@@ -180,79 +180,48 @@ interface TaskRowProps {
 function TaskRow({ task, projectsList, onToggle, onSelect, onDelete }: TaskRowProps) {
   const done = task.status === 'done'
   const projectColor = getProjectColor(task.project_id, projectsList)
-  const projectName = task.project_id
-    ? (projectsList.find(p => p.id === task.project_id)?.title ?? null)
-    : null
-  const firstTag = task.tags ? task.tags.split(',')[0].trim() : null
+  const durationLabel = task.estimated_minutes
+    ? (task.estimated_minutes < 60 ? `${task.estimated_minutes}m` : `${(task.estimated_minutes / 60).toFixed(1).replace('.0', '')}h`)
+    : ''
+  const dueDateLabel = task.due_date
+    ? new Date(task.due_date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' })
+    : ''
+  const overdue = !!task.due_date && !done && task.due_date < new Date().toISOString().split('T')[0]
 
   return (
     <div
-      className={`flex items-center gap-3 px-3 py-2 rounded group hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer ${done ? 'opacity-60' : ''}`}
+      className={`grid items-center gap-2 px-3 py-2 rounded-sm group hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer ${done ? 'opacity-50' : ''}`}
+      style={{ gridTemplateColumns: '20px 8px 1fr 80px 70px 55px 70px 16px' }}
       onClick={() => onSelect(task)}
     >
-      {/* Checkbox */}
       <button
-        className="shrink-0 text-slate-300 hover:text-primary focus:outline-none"
+        className="text-slate-300 hover:text-primary"
         onClick={e => { e.stopPropagation(); onToggle(task) }}
-        aria-label={done ? 'Mark incomplete' : 'Mark complete'}
       >
-        {done
-          ? <CheckCircle2 size={16} className="text-success" />
-          : <Circle size={16} />}
+        {done ? <CheckCircle2 size={16} className="text-success" /> : <Circle size={16} />}
       </button>
 
-      {/* Project color circle (8px) */}
-      <div
-        className="w-2 h-2 rounded-full shrink-0"
-        style={{ backgroundColor: task.project_id ? projectColor : '#E2E8F0' }}
-      />
+      <div className="w-2 h-2 rounded-full" style={{ backgroundColor: task.project_id ? projectColor : 'transparent' }} />
 
-      {/* Title + first tag */}
-      <div className="flex-1 min-w-0 flex items-center gap-2">
-        <span className={`text-sm truncate ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
-          {task.title}
-        </span>
-        {firstTag && (
-          <span className="tag shrink-0 hidden lg:inline-flex">{firstTag}</span>
-        )}
-      </div>
-
-      {/* Project name */}
-      {projectName && (
-        <span className="text-xs text-slate-400 hidden md:inline shrink-0 truncate max-w-[80px]">
-          {projectName}
-        </span>
-      )}
-
-      {/* Priority badge */}
-      <span className={`${priorityClass(task.priority as Priority)} shrink-0`}>
-        {task.priority}
+      <span className={`text-sm truncate ${done ? 'line-through text-slate-400' : 'text-slate-800 dark:text-slate-200'}`}>
+        {task.title}
       </span>
 
-      {/* Due date */}
-      {task.due_date && (
-        <span className="text-xs text-slate-400 hidden md:inline shrink-0">{task.due_date}</span>
-      )}
-
-      {/* Est. Duration */}
-      {task.estimated_minutes && (
-        <span className="text-xs text-slate-400 hidden md:inline shrink-0">
-          {task.estimated_minutes < 60
-            ? `${task.estimated_minutes}m`
-            : `${task.estimated_minutes / 60}h`}
-        </span>
-      )}
-
-      {/* Status badge */}
-      <span className={`${statusClass(task.status as TaskStatus)} hidden sm:inline-flex shrink-0`}>
+      <span className={`${statusClass(task.status as TaskStatus)} text-center`}>
         {STATUS_LABELS[task.status as TaskStatus]}
       </span>
 
-      {/* Delete on hover */}
+      <span className={`text-xs text-center ${overdue ? 'text-danger font-medium' : 'text-slate-400'}`}>
+        {dueDateLabel}
+      </span>
+
+      <span className="text-xs text-slate-400 text-center">{durationLabel}</span>
+
+      <span className={`${priorityClass(task.priority as Priority)} text-center`}>{task.priority}</span>
+
       <button
-        className="shrink-0 text-slate-300 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
+        className="text-slate-300 hover:text-danger opacity-0 group-hover:opacity-100 transition-opacity"
         onClick={e => { e.stopPropagation(); onDelete(task) }}
-        aria-label="Delete"
       >
         <Trash2 size={14} />
       </button>
@@ -272,9 +241,10 @@ interface TaskDetailModalProps {
   onClose: () => void
   onSave: (id: number, data: UpdateTaskRequest) => void
   onCreate?: (data: { title: string; description?: string; status?: TaskStatus; priority?: Priority; due_date?: string; tags?: string; project_id?: number; estimated_minutes?: number; energy_level?: EnergyLevel }) => void
+  initialTitle?: string
 }
 
-function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailModalProps) {
+function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle = '' }: TaskDetailModalProps) {
   const [title, setTitle]             = useState('')
   const [description, setDescription] = useState('')
   const [status, setStatus]           = useState<TaskStatus>('todo')
@@ -311,8 +281,8 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate }: TaskDetailMo
         setScheduledAt(task.scheduled_at)
         setProposals([])
       } else {
-        // Create mode — reset all fields
-        setTitle(''); setDescription(''); setStatus('todo'); setPriority('medium')
+        // Create mode — reset all fields, use initialTitle if provided
+        setTitle(initialTitle); setDescription(''); setStatus('todo'); setPriority('medium')
         setDueDate(''); setTags(''); setProjectId(undefined); setEstMins(undefined)
         setEnergy(undefined); setScheduledAt(undefined); setProposals([])
       }
@@ -677,11 +647,10 @@ function CompletedSection({ tasks: completedTasks, projectsList, onToggle, onSel
 // ---------------------------------------------------------------------------
 
 const KANBAN_COLUMNS: { status: TaskStatus; label: string }[] = [
+  { status: 'todo',        label: 'To Do' },
   { status: 'in_progress', label: 'In Progress' },
   { status: 'scheduled',   label: 'Scheduled' },
-  { status: 'todo',        label: 'To Do' },
   { status: 'done',        label: 'Done' },
-  { status: 'cancelled',   label: 'Cancelled' },
 ]
 
 function KanbanCard({ task, projectsList, onSelect }: {
@@ -1057,6 +1026,8 @@ export function Tasks() {
   const [view, setView]            = useState<'list' | 'kanban'>('list')
   const [filterProject, setFProject] = useState<string>('all')
   const [selected, setSelected]    = useState<Task | null>(null)
+  const [createTitle, setCreateTitle] = useState('')
+  const quickAddTextRef = useRef('')
   const [modalOpen, setModalOpen]  = useState(false)
 
   const undoRef = useRef<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null)
@@ -1248,39 +1219,36 @@ export function Tasks() {
         </Select>
 
         {/* View toggle */}
-        <div className="flex gap-1 ml-auto">
+        <div className="flex border border-slate-200 dark:border-slate-700 rounded-md overflow-hidden ml-auto">
           <button
             onClick={() => setView('list')}
-            title="List view"
-            className={`p-1.5 rounded transition-colors ${view === 'list' ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${view === 'list' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
           >
-            <List size={16} />
+            <List size={14} /> List
           </button>
           <button
             onClick={() => setView('kanban')}
-            title="Kanban view"
-            className={`p-1.5 rounded transition-colors ${view === 'kanban' ? 'bg-slate-200 dark:bg-slate-700 text-slate-900 dark:text-slate-100' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'}`}
+            className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium transition-colors ${view === 'kanban' ? 'bg-primary text-white' : 'bg-white dark:bg-slate-800 text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}
           >
-            <LayoutGrid size={16} />
+            <LayoutGrid size={14} /> Board
           </button>
         </div>
       </div>
 
       {/* Quick-add */}
       <div className="mb-6 flex gap-2 items-start">
-        <div className="flex-1">
-          <QuickAdd
-            onCreate={(title, extra) => createTask.mutate({ title, ...extra })}
-            isCreating={createTask.isPending}
-          />
-        </div>
+        <QuickAdd
+          onCreate={(title, extra) => createTask.mutate({ title, ...extra })}
+          isCreating={createTask.isPending}
+          textRef={quickAddTextRef}
+        />
         <Button
           variant="outline"
           size="sm"
           className="h-9 shrink-0"
-          onClick={() => { setSelected(null); setModalOpen(true) }}
+          onClick={() => { setCreateTitle(quickAddTextRef.current); setSelected(null); setModalOpen(true) }}
         >
-          <Plus size={14} className="mr-1" /> Details
+          Add Details
         </Button>
       </div>
 
@@ -1341,9 +1309,10 @@ export function Tasks() {
       <TaskDetailModal
         task={selected}
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => { setModalOpen(false); setCreateTitle('') }}
         onSave={handleSave}
         onCreate={data => { createTask.mutate(data); toast.success('Task created') }}
+        initialTitle={createTitle}
       />
     </AppShell>
   )
