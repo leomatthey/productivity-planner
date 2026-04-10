@@ -407,7 +407,10 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, tasksLi
       setTaskId(initial.task_id)
     } else {
       const base = defaultStart ?? new Date()
-      const endDate = new Date(base); endDate.setHours(endDate.getHours() + 1)
+      // Round up to next 15-minute mark
+      const mins = base.getMinutes()
+      base.setMinutes(Math.ceil(mins / 15) * 15, 0, 0)
+      const endDate = new Date(base.getTime() + 30 * 60_000) // +30min default
       setTitle(''); setType('personal'); setLocation(''); setDesc(''); setTaskId(undefined)
       setStart(toDatetimeLocal(base))
       setEnd(toDatetimeLocal(endDate))
