@@ -70,18 +70,8 @@ function ProjectFormDialog({ open, onClose, onSave, initial, parentId, allProjec
     } else {
       setTitle(''); setDesc(''); setTgtDate('')
       setStatus('active'); setMode('manual'); setPct(0)
-      // Auto-derive color from parent for sub-projects
-      if (parentId) {
-        const parent = allProjects.find(p => p.id === parentId)
-        const siblings = allProjects.filter(p => p.parent_id === parentId && !p.deleted_at)
-        if (parent?.color) {
-          setColour(getSubProjectColor(parent.color, siblings.length))
-        } else {
-          setColour(PROJECT_COLORS[0])
-        }
-      } else {
-        setColour(PROJECT_COLORS[0])
-      }
+      // Sub-projects don't store a color — it's computed from parent
+      setColour(parentId ? '' : PROJECT_COLORS[0])
     }
   }, [initial, open, parentId, allProjects])
 
@@ -175,17 +165,10 @@ function ProjectFormDialog({ open, onClose, onSave, initial, parentId, allProjec
               />
             </div>
           )}
-          <div>
+          {!parentId && <div>
             <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Colour</label>
             <div className="flex gap-2 mt-1 flex-wrap">
-              {(parentId
-                ? (() => {
-                    const parent = allProjects.find(p => p.id === parentId)
-                    const baseColor = parent?.color ?? PROJECT_COLORS[0]
-                    return Array.from({ length: 6 }, (_, i) => getSubProjectColor(baseColor, i))
-                  })()
-                : [...PROJECT_COLORS]
-              ).map(c => (
+              {PROJECT_COLORS.map(c => (
                 <button
                   key={c}
                   type="button"
@@ -200,7 +183,7 @@ function ProjectFormDialog({ open, onClose, onSave, initial, parentId, allProjec
                 />
               ))}
             </div>
-          </div>
+          </div>}
           <div className="flex gap-2 pt-1">
             <Button onClick={handleSave} className="flex-1">Save</Button>
             <Button variant="outline" onClick={onClose}>Cancel</Button>

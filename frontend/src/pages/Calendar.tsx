@@ -19,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { calendar, tasks as tasksApi, projects as projectsApi } from '../lib/api'
-import { getProjectColor } from '../lib/colors'
+import { getProjectColor, NO_PROJECT_COLOR } from '../lib/colors'
 import { parseUTCDate, toDatetimeLocal } from '../lib/datetime'
 import type { CalendarEvent, EventType, Task, Goal } from '../types'
 
@@ -821,6 +821,22 @@ export function Calendar() {
                 hidden={hidden}
                 onToggle={toggleCalendar}
               />
+            )}
+            {/* Project color legend */}
+            {projectsList.length > 0 && (
+              <div className="px-3 py-2 border-t border-slate-100 dark:border-slate-700">
+                <div className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">Projects</div>
+                {projectsList.filter(p => !p.parent_id && !p.deleted_at).map(p => (
+                  <div key={p.id} className="flex items-center gap-2 py-0.5">
+                    <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: getProjectColor(p.id, projectsList) }} />
+                    <span className="text-xs text-slate-600 dark:text-slate-300 truncate">{p.title}</span>
+                  </div>
+                ))}
+                <div className="flex items-center gap-2 py-0.5 mt-1">
+                  <div className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: NO_PROJECT_COLOR }} />
+                  <span className="text-xs text-slate-400 truncate">No project</span>
+                </div>
+              </div>
             )}
           </aside>
 

@@ -1,32 +1,41 @@
 /**
- * colors.ts — Project colour palette + HSL utilities
- * Used by Projects page, Tasks page (project chips), and Calendar (task_block events).
+ * colors.ts — Unified color system for projects and tasks.
+ *
+ * Rules:
+ * 1. Top-level projects pick from PROJECT_COLORS palette
+ * 2. Sub-projects inherit parent color as a lighter shade (no picker)
+ * 3. Tasks without a project = grey (#E2E8F0)
+ * 4. This color propagates everywhere: task dots, kanban, calendar events
  */
 
 import type { Project } from '../types'
 
 // ---------------------------------------------------------------------------
-// Palette
+// Palette — 12 colors sorted by hue for visual coherence
 // ---------------------------------------------------------------------------
 
 export const PROJECT_COLORS = [
-  '#4F46E5', // indigo   (primary)
-  '#0EA5E9', // sky
-  '#10B981', // emerald
-  '#F59E0B', // amber
   '#EF4444', // red
+  '#F97316', // orange
+  '#F59E0B', // amber
+  '#10B981', // emerald
+  '#14B8A6', // teal
+  '#06B6D4', // cyan
+  '#0EA5E9', // sky
+  '#3B82F6', // blue
+  '#4F46E5', // indigo
   '#8B5CF6', // violet
   '#EC4899', // pink
-  '#14B8A6', // teal
-  '#F97316', // orange
-  '#6366F1', // indigo-alt
+  '#6366F1', // purple
 ] as const
 
-/** Alias used by spec v3 */
 export const PROJECT_PALETTE = PROJECT_COLORS
 
+/** Grey used for tasks/events with no project */
+export const NO_PROJECT_COLOR = '#E2E8F0'
+
 // ---------------------------------------------------------------------------
-// Colour conversion helpers
+// HSL utilities
 // ---------------------------------------------------------------------------
 
 export function hexToHSL(hex: string): { h: number; s: number; l: number } {
@@ -86,44 +95,60 @@ export function hslToHex(h: number, s: number, l: number): string {
 }
 
 // ---------------------------------------------------------------------------
-// Shade generation
+// Sub-project shade
 // ---------------------------------------------------------------------------
 
 /**
- * Returns light (90% L), DEFAULT (original), and dark (30% L) shades of a hex colour.
+ * Single lighter shade derived from parent color.
+ * Same for ALL sub-projects of a parent — no per-sibling variation.
  */
-export function generateShades(hex: string): { light: string; DEFAULT: string; dark: string } {
-  const { h, s } = hexToHSL(hex)
-  return {
-    light:   hslToHex(h, s * 0.4, 94),
-    DEFAULT: hex,
-    dark:    hslToHex(h, s,        30),
+export function getSubProjectShade(parentColor: string): string {
+  const { h, s } = hexToHSL(parentColor)
+  return hslToHex(h, Math.max(s * 0.6, 25), 75)
+}
+
+/** @deprecated Use getSubProjectShade */
+export function getSubProjectColor(parentColor: string, _siblingIndex: number): string {
+  return getSubProjectShade(parentColor)
+}
+
+// ---------------------------------------------------------------------------
+// Main color lookup — the ONE function everything uses
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns the display color for a project.
+ * - Top-level with stored color → that color
+ * - Top-level without color → palette fallback
+ * - Sub-project → lighter shade of parent's color
+ * - No project (undefined) → grey
+ */
+export function getProjectColor(
+  projectId: number | undefined,
+  projects: Project[],
+): string {
+  if (projectId === undefined) return NO_PROJECT_COLOR
+  const project = projects.find(p => p.id === projectId)
+  if (!project) return NO_PROJECT_COLOR
+
+  // If project has an explicit color, use it
+  if (project.color) return project.color
+
+  // Sub-project: inherit lighter shade from parent
+  if (project.parent_id) {
+    const parent = projects.find(p => p.id === project.parent_id)
+    const parentColor = parent?.color ?? PROJECT_COLORS[(parent?.id ?? 0) % PROJECT_COLORS.length]
+    return getSubProjectShade(parentColor)
   }
-}
 
-/**
- * Returns a color for a sub-project derived from its parent's color.
- * Each sibling index gets a progressively lighter shade with a small hue rotation.
- */
-export function getSubProjectColor(parentColor: string, siblingIndex: number): string {
-  const { h, s, l } = hexToHSL(parentColor)
-  const newL = Math.min(l + 14 + siblingIndex * 10, 78)
-  const newS = Math.max(s * 0.72, 28)
-  const newH = (h + siblingIndex * 9) % 360
-  return hslToHex(newH, newS, newL)
+  // Top-level without stored color: fallback to palette
+  return PROJECT_COLORS[projectId % PROJECT_COLORS.length]
 }
 
 // ---------------------------------------------------------------------------
-// Project colour lookup
+// Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Returns the colour for a project by id. Uses the project's stored color field
- * if present; otherwise falls back to PROJECT_COLORS[id % palette.length].
- */
-/**
- * Returns a hex color with the given opacity as an rgba string.
- */
 export function colorWithOpacity(hex: string, opacity: number): string {
   const clean = hex.replace('#', '')
   const r = parseInt(clean.slice(0, 2), 16)
@@ -132,30 +157,20 @@ export function colorWithOpacity(hex: string, opacity: number): string {
   return `rgba(${r}, ${g}, ${b}, ${opacity})`
 }
 
-export function getProjectColor(
-  projectId: number | undefined,
-  projects: Project[],
-): string {
-  if (projectId === undefined) return PROJECT_COLORS[0]
-  const project = projects.find(p => p.id === projectId)
-  if (project?.color) return project.color
-  return PROJECT_COLORS[projectId % PROJECT_COLORS.length]
-}
-
-// ---------------------------------------------------------------------------
-// Contrast helper
-// ---------------------------------------------------------------------------
-
-/**
- * Returns '#FFFFFF' or '#1E293B' depending on which gives better contrast
- * against the given background hex.
- */
 export function getContrastColor(hex: string): string {
   const clean = hex.replace('#', '')
   const r = parseInt(clean.slice(0, 2), 16)
   const g = parseInt(clean.slice(2, 4), 16)
   const b = parseInt(clean.slice(4, 6), 16)
-  // Perceived luminance formula (WCAG)
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
   return luminance > 0.5 ? '#1E293B' : '#FFFFFF'
+}
+
+export function generateShades(hex: string): { light: string; DEFAULT: string; dark: string } {
+  const { h, s } = hexToHSL(hex)
+  return {
+    light:   hslToHex(h, s * 0.4, 94),
+    DEFAULT: hex,
+    dark:    hslToHex(h, s,        30),
+  }
 }
