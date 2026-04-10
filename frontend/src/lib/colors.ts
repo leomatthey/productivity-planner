@@ -18,15 +18,15 @@ export const PROJECT_COLORS = [
   '#EF4444', // red
   '#F97316', // orange
   '#F59E0B', // amber
+  '#84CC16', // lime
   '#10B981', // emerald
   '#14B8A6', // teal
-  '#06B6D4', // cyan
   '#0EA5E9', // sky
   '#3B82F6', // blue
   '#4F46E5', // indigo
   '#8B5CF6', // violet
   '#EC4899', // pink
-  '#6366F1', // purple
+  '#F43F5E', // rose
 ] as const
 
 export const PROJECT_PALETTE = PROJECT_COLORS
@@ -104,7 +104,7 @@ export function hslToHex(h: number, s: number, l: number): string {
  */
 export function getSubProjectShade(parentColor: string): string {
   const { h, s } = hexToHSL(parentColor)
-  return hslToHex(h, Math.max(s * 0.6, 25), 75)
+  return hslToHex(h, Math.max(s * 0.8, 30), 60)
 }
 
 /** @deprecated Use getSubProjectShade */
