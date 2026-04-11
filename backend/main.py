@@ -37,6 +37,19 @@ async def lifespan(app: FastAPI):
             "WHERE status = 'cancelled' AND deleted_at IS NULL"
         ))
         conn.commit()
+    # Cleanup: soft-delete orphaned task_block events (task not 'scheduled')
+    # and clear stale scheduled_at on non-scheduled tasks
+    with engine.connect() as conn:
+        conn.execute(text(
+            "UPDATE calendar_events SET deleted_at = CURRENT_TIMESTAMP "
+            "WHERE event_type = 'task_block' AND task_id IS NOT NULL AND deleted_at IS NULL "
+            "AND task_id IN (SELECT id FROM tasks WHERE status != 'scheduled')"
+        ))
+        conn.execute(text(
+            "UPDATE tasks SET scheduled_at = NULL "
+            "WHERE status != 'scheduled' AND scheduled_at IS NOT NULL"
+        ))
+        conn.commit()
     # Seed demo data on first run (no-op if data already exists)
     seed_database()
     # Warn if AI features will be unavailable

@@ -11,10 +11,11 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { tasks, calendar as calendarApi, projects as projectsApi } from '../lib/api'
+import { tasks, projects as projectsApi } from '../lib/api'
 import { getProjectColor } from '../lib/colors'
+import { ScheduleCalendar, type ProposalBlock } from '../components/ScheduleCalendar'
 import { parseUTCDate } from '../lib/datetime'
-import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, UpdateTaskRequest } from '../types'
+import type { Task, TaskStatus, Priority, EnergyLevel, Goal, UpdateTaskRequest } from '../types'
 
 // Proposal shape returned by backend find-slots
 interface SlotProposal {
@@ -46,14 +47,6 @@ const DURATION_OPTIONS = [
   { label: '4 hours',   value: 240 },
 ] as const
 
-const EVENT_COLOURS: Record<string, string> = {
-  meeting: '#3B82F6', personal: '#8B5CF6', reminder: '#F59E0B',
-  task_block: '#10B981', google_import: '#94A3B8',
-}
-
-const WORK_START_H = 9
-const WORK_END_H   = 18
-const HOUR_HEIGHT  = 48 // px
 
 function priorityClass(p: Priority): string {
   return p === 'urgent' ? 'badge-urgent'
@@ -85,33 +78,6 @@ function groupByFn(
     entries.sort((a, b) => STATUS_ORDER.indexOf(a[0] as TaskStatus) - STATUS_ORDER.indexOf(b[0] as TaskStatus))
   }
   return entries
-}
-
-function getMondayOfWeek(date: Date): Date {
-  const d = new Date(date)
-  const day = d.getDay()
-  const diff = day === 0 ? -6 : 1 - day
-  d.setDate(d.getDate() + diff)
-  d.setHours(0, 0, 0, 0)
-  return d
-}
-
-// Use shared UTC parser — backend stores naive UTC datetimes
-const toUTCSafe = parseUTCDate
-
-function getSlotStyle(start: Date, end: Date): React.CSSProperties {
-  const startMins = (start.getHours() - WORK_START_H) * 60 + start.getMinutes()
-  const endMins   = (end.getHours()   - WORK_START_H) * 60 + end.getMinutes()
-  const clampedStart = Math.max(0, startMins)
-  const clampedEnd   = Math.min((WORK_END_H - WORK_START_H) * 60, endMins)
-  if (clampedEnd <= clampedStart) return { display: 'none' }
-  return {
-    position: 'absolute' as const,
-    top:    `${(clampedStart / 60) * HOUR_HEIGHT}px`,
-    height: `${((clampedEnd - clampedStart) / 60) * HOUR_HEIGHT}px`,
-    left: '2px',
-    right: '2px',
-  }
 }
 
 const SKELETON_ROWS = Array.from({ length: 5 })
@@ -534,10 +500,17 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
                     variant="outline"
                     size="sm"
                     className="w-full"
-                    onClick={() => {
-                      setStatus('todo')
-                      setScheduledAt(undefined)
-                      setProposals([])
+                    onClick={async () => {
+                      if (!task) return
+                      try {
+                        await tasks.unschedule(task.id)
+                        qc.invalidateQueries({ queryKey: ['tasks'] })
+                        qc.invalidateQueries({ queryKey: ['events'] })
+                        toast.success('Task unscheduled')
+                        onClose() // Close modal — unschedule already persisted
+                      } catch {
+                        toast.error('Failed to unschedule')
+                      }
                     }}
                   >
                     Reschedule
@@ -739,296 +712,168 @@ function KanbanView({ tasks: allTasks, projectsList, onSelect }: {
 }
 
 // ---------------------------------------------------------------------------
-// SmartSchedulePanel — collapsible, custom mini week grid, no react-big-calendar
+// SmartSchedulePanel — Propose → Preview → Confirm flow
 // ---------------------------------------------------------------------------
 
-const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-
-const HOUR_LABELS = Array.from({ length: WORK_END_H - WORK_START_H }, (_, i) => {
-  const h = WORK_START_H + i
-  return h < 12 ? `${h}am` : h === 12 ? '12pm' : `${h - 12}pm`
-})
-
-// Batch proposal from backend
-interface BatchProposal {
-  taskId: number
-  title: string
-  start: Date
-  end: Date
-}
-
-function SmartSchedulePanel({ allTasks, events }: {
-  allTasks: Task[]
-  events: CalendarEvent[]
+function SmartSchedulePanel({ projectsList }: {
+  projectsList: Goal[]
 }) {
-  const [open, setOpen]           = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [proposed, setProposed]   = useState<BatchProposal[]>([])
-  const [rejectedIds, setRejectedIds] = useState<Set<number>>(new Set())
+  const [proposals, setProposals] = useState<ProposalBlock[]>([])
   const [loading, setLoading]     = useState(false)
 
   const qc = useQueryClient()
 
-  const monday = useMemo(() => getMondayOfWeek(new Date()), [])
-  const weekDays = useMemo(() =>
-    Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday)
-      d.setDate(d.getDate() + i)
-      return d
-    }),
-    [monday],
-  )
+  // Own unfiltered tasks query — always up to date regardless of toolbar filters
+  const { data: schedulerTasks = [] } = useQuery({
+    queryKey: ['tasks'],
+    queryFn: () => tasks.list(),
+  })
 
-  const unscheduledTasks = allTasks.filter(
-    t => !t.scheduled_at && t.status !== 'done' && t.status !== 'scheduled' && !t.deleted_at,
+  // Status is the source of truth — 'todo' and 'in_progress' are schedulable
+  const unscheduledTasks = schedulerTasks.filter(
+    t => (t.status === 'todo' || t.status === 'in_progress') && !t.deleted_at,
   )
 
   function toggleId(id: number) {
     setSelectedIds(prev => {
       const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
+      if (next.has(id)) {
+        next.delete(id)
+        // Remove proposal when unchecked
+        setProposals(p => p.filter(pr => pr.taskId !== id))
+      } else {
+        next.add(id)
+      }
       return next
     })
   }
 
-  async function handleSchedule() {
+  // Propose: find slots without writing to DB
+  async function handlePropose() {
     const toSchedule = unscheduledTasks.filter(t => selectedIds.has(t.id))
     if (!toSchedule.length) { toast.error('Select at least one task'); return }
     setLoading(true)
     try {
-      // Use backend auto-assign to get proposals
-      const result = await tasks.scheduleBatch({
-        task_ids: toSchedule.map(t => t.id),
+      const result = await tasks.findSlotsBatch({ task_ids: toSchedule.map(t => t.id) })
+      const blocks: ProposalBlock[] = result.proposals.map(p => {
+        const task = schedulerTasks.find(t => t.id === p.task_id)
+        return {
+          taskId: p.task_id,
+          title: p.title,
+          start: parseUTCDate(p.start),
+          end: parseUTCDate(p.end),
+          color: getProjectColor(task?.project_id, projectsList),
+        }
       })
-      // Convert to local BatchProposal format for display
-      const proposals: BatchProposal[] = result.scheduled.map(s => ({
-        taskId: s.task.id,
-        title: s.task.title,
-        start: parseUTCDate(String(s.event.start_datetime)),
-        end: parseUTCDate(String(s.event.end_datetime)),
-      }))
-      setProposed(proposals)
-      setRejectedIds(new Set())
-      // Refresh queries since batch already scheduled
-      qc.invalidateQueries({ queryKey: ['tasks'] })
-      qc.invalidateQueries({ queryKey: ['events'] })
-      if (result.failed.length > 0) {
-        toast.warning(`Could not schedule ${result.failed.length} task(s)`)
-      }
-      if (result.scheduled.length > 0) {
-        toast.success(`Scheduled ${result.scheduled.length} task(s)`)
+      setProposals(blocks)
+      if (result.unscheduled.length > 0) {
+        toast.warning(`Could not find slots for ${result.unscheduled.length} task(s)`)
       }
     } catch {
-      toast.error('Failed to schedule tasks')
+      toast.error('Failed to find scheduling slots')
     } finally {
       setLoading(false)
     }
   }
 
-  async function handleUnscheduleRejected() {
-    // Unschedule any that user rejected after the batch was applied
-    const toUnschedule = proposed.filter(s => rejectedIds.has(s.taskId))
-    for (const slot of toUnschedule) {
-      try {
-        await tasks.unschedule(slot.taskId)
-      } catch { /* ignore individual failures */ }
+  // Confirm: write proposals to DB atomically
+  async function handleConfirm() {
+    if (proposals.length === 0) return
+    setLoading(true)
+    try {
+      await tasks.scheduleBatch({
+        items: proposals.map(p => ({
+          task_id: p.taskId,
+          start_datetime: p.start.toISOString(),
+          end_datetime: p.end.toISOString(),
+        })),
+      })
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['events'] })
+      toast.success(`Scheduled ${proposals.length} task(s)`)
+      setProposals([])
+      setSelectedIds(new Set())
+    } catch {
+      toast.error('Failed to confirm schedule')
+    } finally {
+      setLoading(false)
     }
-    qc.invalidateQueries({ queryKey: ['tasks'] })
-    qc.invalidateQueries({ queryKey: ['events'] })
-    toast.success('Rejected tasks unscheduled')
-    setProposed([])
-    setRejectedIds(new Set())
-    setSelectedIds(new Set())
   }
 
-  function getEventsOnDay(day: Date): CalendarEvent[] {
-    const dateStr = day.toISOString().slice(0, 10)
-    return events.filter(e => toUTCSafe(e.start_datetime).toISOString().slice(0, 10) === dateStr)
+  function handleProposalMove(taskId: number, start: Date, end: Date) {
+    setProposals(prev => prev.map(p => p.taskId === taskId ? { ...p, start, end } : p))
   }
-
-  function getProposedOnDay(day: Date): BatchProposal[] {
-    const dateStr = day.toISOString().slice(0, 10)
-    return proposed.filter(s => s.start.toISOString().slice(0, 10) === dateStr)
-  }
-
-  const todayStr = new Date().toISOString().slice(0, 10)
 
   return (
     <div className="mt-6 card">
-      <button
-        className="flex items-center gap-2 px-4 py-3 w-full text-left text-sm font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800/50 rounded-t transition-colors"
-        onClick={() => setOpen(v => !v)}
-      >
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 dark:border-slate-800">
         <Calendar size={15} className="text-primary" />
-        Smart Schedule
-        {open
-          ? <ChevronDown size={14} className="ml-auto" />
-          : <ChevronRight size={14} className="ml-auto" />}
-      </button>
-
-      {open && (
-        <div className="flex gap-6 p-4 border-t border-slate-100 dark:border-slate-700 overflow-x-auto">
-          {/* Left: task checklist */}
-          <div className="w-64 shrink-0">
-            <p className="text-xs font-semibold text-slate-500 uppercase tracking-widest mb-3">
-              Select tasks to schedule
-            </p>
-            <div className="space-y-1 max-h-64 overflow-y-auto">
-              {unscheduledTasks.length === 0 && (
-                <p className="text-sm text-slate-400">No unscheduled tasks</p>
-              )}
-              {unscheduledTasks.map(t => {
-                const proposedSlot = proposed.find(s => s.taskId === t.id)
-                const isRejected   = rejectedIds.has(t.id)
-                return (
-                  <label
-                    key={t.id}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(t.id)}
-                      onChange={() => toggleId(t.id)}
-                      className="rounded border-slate-300"
-                    />
-                    <span className={`text-sm truncate flex-1 ${isRejected ? 'line-through text-slate-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                      {t.title}
-                    </span>
-                    {t.estimated_minutes && !proposedSlot && (
-                      <span className="text-xs text-slate-400 shrink-0">{t.estimated_minutes}m</span>
-                    )}
-                    {proposedSlot && !isRejected && (
-                      <div className="flex items-center gap-1 shrink-0 ml-auto">
-                        <span className="text-[10px] text-primary-600 dark:text-primary-400">
-                          {proposedSlot.start.toLocaleDateString([], { weekday: 'short' })}{' '}
-                          {proposedSlot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
-                        </span>
-                        <button
-                          type="button"
-                          title="Reject this slot"
-                          onClick={e => {
-                            e.preventDefault()
-                            setRejectedIds(prev => { const n = new Set(prev); n.add(t.id); return n })
-                          }}
-                          className="text-[10px] text-slate-400 hover:text-danger leading-none"
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    )}
-                    {isRejected && (
-                      <span className="text-[10px] text-slate-300 shrink-0">skipped</span>
-                    )}
-                  </label>
-                )
-              })}
-            </div>
-            <div className="flex flex-col gap-2 mt-4">
-              <Button size="sm" onClick={handleSchedule} disabled={selectedIds.size === 0 || loading}>
-                {loading ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
-                Schedule Selected
-              </Button>
-              {proposed.length > 0 && rejectedIds.size > 0 && (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={handleUnscheduleRejected}
+        <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Smart Schedule</span>
+      </div>
+      <div className="flex gap-4 p-4">
+        {/* Left: task checklist */}
+        <div className="w-56 shrink-0">
+          <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">
+            Select tasks to schedule
+          </p>
+          <div className="space-y-0.5 max-h-64 overflow-y-auto">
+            {unscheduledTasks.length === 0 && (
+              <p className="text-sm text-slate-400">No unscheduled tasks</p>
+            )}
+            {unscheduledTasks.map(t => {
+              const proposal = proposals.find(p => p.taskId === t.id)
+              return (
+                <label
+                  key={t.id}
+                  className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer transition-colors ${
+                    proposal ? 'bg-primary-50 dark:bg-primary-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-700/50'
+                  }`}
                 >
-                  Undo Rejected ({rejectedIds.size})
-                </Button>
-              )}
-            </div>
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.has(t.id)}
+                    onChange={() => toggleId(t.id)}
+                    className="rounded border-slate-300"
+                  />
+                  <span className="text-sm truncate flex-1 text-slate-700 dark:text-slate-300">
+                    {t.title}
+                  </span>
+                  {t.estimated_minutes && (
+                    <span className="text-[10px] text-slate-400 shrink-0">{t.estimated_minutes}m</span>
+                  )}
+                </label>
+              )
+            })}
           </div>
-
-          {/* Right: mini week grid */}
-          <div className="flex-1 min-w-[560px]">
-            <div className="flex">
-              {/* Hour labels column */}
-              <div className="w-10 shrink-0">
-                <div className="h-7" /> {/* day header spacer */}
-                {HOUR_LABELS.map((label, i) => (
-                  <div
-                    key={i}
-                    className="flex items-start justify-end pr-1.5 text-[10px] text-slate-400 leading-none"
-                    style={{ height: `${HOUR_HEIGHT}px` }}
-                  >
-                    {label}
-                  </div>
-                ))}
-              </div>
-
-              {/* Day columns */}
-              {weekDays.map((day, di) => {
-                const dayEvents   = getEventsOnDay(day)
-                const dayProposed = getProposedOnDay(day)
-                const dayStr      = day.toISOString().slice(0, 10)
-                return (
-                  <div key={di} className="flex-1 min-w-0">
-                    {/* Day header */}
-                    <div
-                      className={`h-7 text-center text-[11px] font-medium leading-7 ${
-                        dayStr === todayStr
-                          ? 'text-primary-600 font-bold'
-                          : 'text-slate-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {DAY_NAMES[di]} {day.getDate()}
-                    </div>
-
-                    {/* Grid body */}
-                    <div
-                      className="relative border-l border-slate-100 dark:border-slate-700"
-                      style={{ height: `${(WORK_END_H - WORK_START_H) * HOUR_HEIGHT}px` }}
-                    >
-                      {/* Hour grid lines */}
-                      {HOUR_LABELS.map((_, i) => (
-                        <div
-                          key={i}
-                          className="absolute left-0 right-0 border-t border-slate-100 dark:border-slate-800"
-                          style={{ top: `${i * HOUR_HEIGHT}px` }}
-                        />
-                      ))}
-
-                      {/* Existing calendar events */}
-                      {dayEvents.map(ev => {
-                        const s   = toUTCSafe(ev.start_datetime)
-                        const e   = toUTCSafe(ev.end_datetime)
-                        const sty = getSlotStyle(s, e)
-                        return (
-                          <div
-                            key={ev.id}
-                            className="rounded text-[9px] text-white px-1 overflow-hidden leading-tight"
-                            style={{
-                              ...sty,
-                              backgroundColor: EVENT_COLOURS[ev.event_type] ?? '#94A3B8',
-                            }}
-                          >
-                            {ev.title}
-                          </div>
-                        )
-                      })}
-
-                      {/* Proposed slots */}
-                      {dayProposed.map(slot => {
-                        const sty = getSlotStyle(slot.start, slot.end)
-                        return (
-                          <div
-                            key={slot.taskId}
-                            className="rounded text-[9px] text-primary-700 px-1 overflow-hidden leading-tight border border-primary-300"
-                            style={{ ...sty, backgroundColor: 'rgba(79,70,229,0.15)' }}
-                          >
-                            {slot.title}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
+          <div className="flex flex-col gap-2 mt-3">
+            <Button size="sm" onClick={handlePropose} disabled={selectedIds.size === 0 || loading}>
+              {loading ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
+              Schedule Selected
+            </Button>
+            {proposals.length > 0 && (
+              <>
+                <Button size="sm" onClick={handleConfirm} disabled={loading}>
+                  Confirm ({proposals.length})
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => { setProposals([]); setSelectedIds(new Set()) }}>
+                  Cancel
+                </Button>
+              </>
+            )}
           </div>
         </div>
-      )}
+
+        {/* Right: ScheduleCalendar with proposals */}
+        <div className="flex-1 min-w-[480px] overflow-x-auto">
+          <ScheduleCalendar
+            proposals={proposals}
+            onProposalMove={handleProposalMove}
+            tasksList={schedulerTasks}
+            projectsList={projectsList}
+          />
+        </div>
+      </div>
     </div>
   )
 }
@@ -1068,10 +913,6 @@ export function Tasks() {
     queryFn: () => projectsApi.list(),
   })
 
-  const { data: events = [] } = useQuery({
-    queryKey: ['events-scheduling'],
-    queryFn: () => calendarApi.events({ include_stale: true }),
-  })
 
   const createTask = useMutation({
     mutationFn: (body: Parameters<typeof tasks.create>[0]) => tasks.create(body),
@@ -1326,7 +1167,7 @@ export function Tasks() {
       )}
 
       {/* Smart Schedule Panel */}
-      <SmartSchedulePanel allTasks={filtered} events={events} />
+      <SmartSchedulePanel projectsList={projectsList} />
 
       {/* Task detail modal */}
       <TaskDetailModal

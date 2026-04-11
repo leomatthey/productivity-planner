@@ -105,6 +105,9 @@ export const tasks = {
   findSlots: (body: { task_id: number; count?: number; start_date?: string }) =>
     post<{ slots: Array<{ start: string; end: string; date: string }> }>('/tasks/find-slots', body),
 
+  findSlotsBatch: (body: { task_ids: number[]; start_date?: string }) =>
+    post<{ proposals: Array<{ task_id: number; title: string; start: string; end: string }>; unscheduled: Array<{ task_id: number; error: string }> }>('/tasks/find-slots-batch', body),
+
   schedule: (taskId: number, body: { start_datetime: string; end_datetime: string }) =>
     post<{ task: Task; event: CalendarEvent }>(`/tasks/${taskId}/schedule`, body),
 

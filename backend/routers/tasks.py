@@ -220,6 +220,34 @@ def find_slots(body: FindSlotsRequest):
         raise HTTPException(status_code=404, detail=str(exc))
 
 
+class FindSlotsBatchRequest(BaseModel):
+    task_ids: List[int]
+    start_date: Optional[date] = None
+
+
+@router.post("/find-slots-batch")
+def find_slots_batch(body: FindSlotsBatchRequest):
+    """Find scheduling proposals for multiple tasks. Returns proposals only, no DB writes."""
+    proposals = schedule_batch_auto(task_ids=body.task_ids, start_date=body.start_date)
+    scheduled_ids = {p["task_id"] for p in proposals}
+    return {
+        "proposals": [
+            {
+                "task_id": p["task_id"],
+                "title": p["title"],
+                "start": p["start"].isoformat(),
+                "end": p["end"].isoformat(),
+            }
+            for p in proposals
+        ],
+        "unscheduled": [
+            {"task_id": tid, "error": "No slot found"}
+            for tid in body.task_ids
+            if tid not in scheduled_ids
+        ],
+    }
+
+
 @router.post("/{task_id}/schedule", response_model=ScheduleResult)
 def schedule_task(task_id: int, body: ScheduleTaskRequest):
     """Atomically schedule a task: update status + create calendar event."""
