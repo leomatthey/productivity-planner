@@ -20,7 +20,7 @@ function newSessionId(): string {
 
 function formatSessionDate(iso: string): string {
   return new Date(iso).toLocaleDateString([], {
-    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+    month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   })
 }
 

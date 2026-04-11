@@ -25,7 +25,7 @@ function isOverdue(task: Task): boolean {
 }
 
 function formatTime(iso: string): string {
-  return parseUTCDate(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  return parseUTCDate(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function formatDate(iso: string): string {

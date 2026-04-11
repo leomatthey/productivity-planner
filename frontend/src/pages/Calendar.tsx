@@ -63,6 +63,7 @@ interface DnDCalendarProps {
   style: React.CSSProperties
   eventPropGetter: (e: object) => { style: React.CSSProperties }
   components: object
+  formats: object
   views: View[]
   popup: boolean
 }
@@ -344,8 +345,8 @@ function EventPopover({ state, calendarColors, calendarNames, tasksList, project
           <div>
             <div>{format(toUTC(event.start_datetime), 'EEEE, MMMM d')}</div>
             <div className="text-slate-500">
-              {format(toUTC(event.start_datetime), 'h:mm a')} –{' '}
-              {format(toUTC(event.end_datetime), 'h:mm a')}
+              {format(toUTC(event.start_datetime), 'HH:mm')} –{' '}
+              {format(toUTC(event.end_datetime), 'HH:mm')}
             </div>
           </div>
         </div>
@@ -587,31 +588,39 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, default
             <TabsContent value="from-task" className="pt-2">
               <div className="space-y-3">
                 <p className="text-xs text-slate-500">
-                  Select a task to pre-fill the event form. You can then review and adjust on the New Event tab.
+                  Select a task to create a time block on the calendar.
                 </p>
-                <div>
-                  <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Task</label>
-                  <Select value={selectedTaskId} onValueChange={handleTaskSelect}>
-                    <SelectTrigger className="mt-1"><SelectValue placeholder="Choose a task…" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="__none__">Choose a task…</SelectItem>
-                      {activeTasks.map(t => {
-                        const color = getProjectColor(t.project_id, projectsList)
-                        const due = t.due_date ? new Date(t.due_date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : ''
-                        const dur = t.estimated_minutes ? (t.estimated_minutes < 60 ? `${t.estimated_minutes}m` : `${(t.estimated_minutes / 60).toFixed(1).replace('.0', '')}h`) : ''
-                        return (
-                          <SelectItem key={t.id} value={String(t.id)}>
-                            <span className="flex items-center gap-1.5 w-full">
-                              <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color }} />
-                              <span className="truncate flex-1">{t.title}</span>
-                              {due && <span className="text-[10px] text-slate-400 shrink-0">{due}</span>}
-                              {dur && <span className="text-[10px] text-slate-400 shrink-0">{dur}</span>}
-                            </span>
-                          </SelectItem>
-                        )
-                      })}
-                    </SelectContent>
-                  </Select>
+                <div className="max-h-[240px] overflow-y-auto border border-slate-200 dark:border-slate-700 rounded-md divide-y divide-slate-100 dark:divide-slate-800">
+                  {activeTasks.length === 0 ? (
+                    <p className="p-3 text-sm text-slate-400 text-center">No tasks to schedule</p>
+                  ) : activeTasks.map(t => {
+                    const color = getProjectColor(t.project_id, projectsList)
+                    const projectName = t.project_id ? projectsList.find(p => p.id === t.project_id)?.title : null
+                    const due = t.due_date ? new Date(t.due_date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : null
+                    const dur = t.estimated_minutes ? (t.estimated_minutes < 60 ? `${t.estimated_minutes}m` : `${(t.estimated_minutes / 60).toFixed(1).replace('.0', '')}h`) : null
+                    const selected = selectedTaskId === String(t.id)
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => handleTaskSelect(String(t.id))}
+                        className={`w-full text-left px-3 py-2.5 transition-colors ${selected ? 'bg-primary-50 dark:bg-primary-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'}`}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: color }} />
+                          <span className={`text-sm truncate flex-1 ${selected ? 'font-medium text-primary-700 dark:text-primary-300' : 'text-slate-700 dark:text-slate-200'}`}>
+                            {t.title}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 mt-0.5 ml-[18px]">
+                          {projectName && <span className="text-[10px] text-slate-400 truncate max-w-[100px]">{projectName}</span>}
+                          {due && <span className="text-[10px] text-slate-400">{due}</span>}
+                          {dur && <span className="text-[10px] text-slate-400">{dur}</span>}
+                        </div>
+                      </button>
+                    )
+                  })
+                  }
                 </div>
                 {activeTasks.length === 0 && (
                   <p className="text-sm text-slate-400">No active tasks available.</p>
@@ -946,6 +955,13 @@ export function Calendar() {
                 toolbar={false}
                 style={{ height: '100%' }}
                 eventPropGetter={e => eventPropGetter(e as BigCalEvent)}
+                formats={{
+                  timeGutterFormat: (d: Date) => format(d, 'HH:mm'),
+                  eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
+                    `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
+                  selectRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
+                    `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
+                }}
                 components={components}
                 views={['month', 'week', 'day']}
                 popup
@@ -978,6 +994,7 @@ export function Calendar() {
         defaultStart={defStart}
         defaultEnd={defEnd}
         tasksList={tasksList}
+        projectsList={projectsList}
       />
     </div>
   )

@@ -562,7 +562,7 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
                         const startDate = parseUTCDate(p.start)
                         const endDate = parseUTCDate(p.end)
                         const dateLabel = startDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-                        const timeLabel = `${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} – ${endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+                        const timeLabel = `${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} – ${endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`
                         return (
                           <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2">
                             <div className="flex items-center justify-between gap-2">
@@ -901,7 +901,7 @@ function SmartSchedulePanel({ allTasks, events }: {
                       <div className="flex items-center gap-1 shrink-0 ml-auto">
                         <span className="text-[10px] text-primary-600 dark:text-primary-400">
                           {proposedSlot.start.toLocaleDateString([], { weekday: 'short' })}{' '}
-                          {proposedSlot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {proposedSlot.start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}
                         </span>
                         <button
                           type="button"
