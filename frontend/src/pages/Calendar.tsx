@@ -80,6 +80,10 @@ const DnDCalendar = withDragAndDrop(BigCalendar)
 // Event colour helpers
 // ---------------------------------------------------------------------------
 
+// Unified Google Calendar colors — neutral so they don't compete with project colors
+const GOOGLE_CAL_COLOR       = '#94A3B8' // slate-400, primary calendar
+const GOOGLE_CAL_COLOR_OTHER = '#B0BEC5' // slightly lighter, other calendars
+
 const EVENT_COLOURS: Record<string, string> = {
   meeting:       '#3B82F6',
   personal:      '#8B5CF6',
@@ -118,6 +122,7 @@ interface BigCalEvent {
   title: string
   start: Date
   end: Date
+  allDay?: boolean
   resource: CalendarEvent
 }
 
@@ -125,13 +130,24 @@ interface BigCalEvent {
 const toUTC = parseUTCDate
 
 function toBigCalEvent(e: CalendarEvent): BigCalEvent {
-  return {
-    id: e.id,
-    title: e.title,
-    start: toUTC(e.start_datetime),
-    end:   toUTC(e.end_datetime),
-    resource: e,
+  const start = toUTC(e.start_datetime)
+  const end   = toUTC(e.end_datetime)
+
+  // All-day detection: backend stores all-day events as midnight-to-midnight UTC.
+  // Check if both times have 0 hours/minutes in the RAW string (before UTC→local shift).
+  const rawStart = e.start_datetime
+  const rawEnd = e.end_datetime
+  const isAllDay = rawStart.includes('T00:00:00') && rawEnd.includes('T00:00:00') && rawStart !== rawEnd
+
+  if (isAllDay) {
+    // For all-day events, use date-only (midnight local) to avoid UTC→local time shift
+    // that makes them appear at 02:00 instead of in the all-day banner
+    const startDate = new Date(rawStart.slice(0, 10) + 'T00:00:00')
+    const endDate = new Date(rawEnd.slice(0, 10) + 'T00:00:00')
+    return { id: e.id, title: e.title, start: startDate, end: endDate, allDay: true, resource: e }
   }
+
+  return { id: e.id, title: e.title, start, end, allDay: false, resource: e }
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +268,7 @@ function CalendarFilterList({ calendars, hidden, onToggle }: {
             <div
               className="w-3 h-3 rounded-sm shrink-0 transition-opacity"
               style={{
-                backgroundColor: cal.backgroundColor,
+                backgroundColor: cal.primary ? GOOGLE_CAL_COLOR : GOOGLE_CAL_COLOR_OTHER,
                 opacity: hidden.has(cal.id) ? 0.25 : 1,
               }}
             />
@@ -402,7 +418,7 @@ function CalendarEventBlock({ event }: { event: BigCalEvent }) {
   return (
     <div className="h-full overflow-hidden leading-tight px-0.5 py-0.5">
       <div className="text-[11px] font-medium truncate">{event.title}</div>
-      <div className="text-[10px] opacity-70 truncate">{format(event.start, 'HH:mm')}</div>
+      {!event.allDay && <div className="text-[10px] opacity-70 truncate">{format(event.start, 'HH:mm')}</div>}
     </div>
   )
 }
@@ -680,7 +696,7 @@ export function Calendar() {
   })
 
   const calendarColors = useMemo(
-    () => Object.fromEntries(calendarList.map(c => [c.id, c.backgroundColor])),
+    () => Object.fromEntries(calendarList.map(c => [c.id, c.primary ? GOOGLE_CAL_COLOR : GOOGLE_CAL_COLOR_OTHER])),
     [calendarList],
   )
   const calendarNames = useMemo(
