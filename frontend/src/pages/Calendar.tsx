@@ -402,7 +402,7 @@ function CalendarEventBlock({ event }: { event: BigCalEvent }) {
   return (
     <div className="h-full overflow-hidden leading-tight px-0.5 py-0.5">
       <div className="text-[11px] font-medium truncate">{event.title}</div>
-      <div className="text-[10px] opacity-70 truncate">{format(event.start, 'h:mm a')}</div>
+      <div className="text-[10px] opacity-70 truncate">{format(event.start, 'HH:mm')}</div>
     </div>
   )
 }
@@ -497,18 +497,17 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, default
     onClose()
   }
 
-  // Show unscheduled tasks only (todo, in_progress), ordered by priority then due date
+  // Show unscheduled tasks only (todo, in_progress), ordered by due date then priority
   const PRIO_ORDER: Record<string, number> = { urgent: 0, high: 1, medium: 2, low: 3 }
   const activeTasks = tasksList
     .filter(t => !t.deleted_at && (t.status === 'todo' || t.status === 'in_progress'))
     .sort((a, b) => {
-      const pa = PRIO_ORDER[a.priority] ?? 2
-      const pb = PRIO_ORDER[b.priority] ?? 2
-      if (pa !== pb) return pa - pb
-      if (a.due_date && b.due_date) return a.due_date.localeCompare(b.due_date)
-      if (a.due_date) return -1
-      if (b.due_date) return 1
-      return 0
+      // Due date first (earliest first, null last)
+      if (a.due_date && b.due_date) { const cmp = a.due_date.localeCompare(b.due_date); if (cmp !== 0) return cmp }
+      if (a.due_date && !b.due_date) return -1
+      if (!a.due_date && b.due_date) return 1
+      // Then priority
+      return (PRIO_ORDER[a.priority] ?? 2) - (PRIO_ORDER[b.priority] ?? 2)
     })
 
   const newEventForm = (
@@ -595,10 +594,10 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, default
                     <p className="p-3 text-sm text-slate-400 text-center">No tasks to schedule</p>
                   ) : activeTasks.map(t => {
                     const color = getProjectColor(t.project_id, projectsList)
-                    const projectName = t.project_id ? projectsList.find(p => p.id === t.project_id)?.title : null
                     const due = t.due_date ? new Date(t.due_date + 'T00:00:00').toLocaleDateString([], { month: 'short', day: 'numeric' }) : null
                     const dur = t.estimated_minutes ? (t.estimated_minutes < 60 ? `${t.estimated_minutes}m` : `${(t.estimated_minutes / 60).toFixed(1).replace('.0', '')}h`) : null
                     const selected = selectedTaskId === String(t.id)
+                    const hasMeta = due || dur || t.priority
                     return (
                       <button
                         key={t.id}
@@ -612,11 +611,13 @@ function EventFormDialog({ open, onClose, onSave, initial, defaultStart, default
                             {t.title}
                           </span>
                         </div>
-                        <div className="flex items-center gap-2 mt-0.5 ml-[18px]">
-                          {projectName && <span className="text-[10px] text-slate-400 truncate max-w-[100px]">{projectName}</span>}
-                          {due && <span className="text-[10px] text-slate-400">{due}</span>}
-                          {dur && <span className="text-[10px] text-slate-400">{dur}</span>}
-                        </div>
+                        {hasMeta && (
+                          <div className="flex items-center gap-3 mt-0.5 ml-[18px]">
+                            {due && <span className="text-[10px] text-slate-400">Due: {due}</span>}
+                            {dur && <span className="text-[10px] text-slate-400">Time: {dur}</span>}
+                            {t.priority && <span className="text-[10px] text-slate-400">Priority: {t.priority}</span>}
+                          </div>
+                        )}
                       </button>
                     )
                   })
@@ -959,6 +960,7 @@ export function Calendar() {
                   timeGutterFormat: (d: Date) => format(d, 'HH:mm'),
                   eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
                     `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
+                  eventTimeRangeStartFormat: (d: Date) => format(d, 'HH:mm'),
                   selectRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
                     `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
                 }}
