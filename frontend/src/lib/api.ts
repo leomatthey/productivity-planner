@@ -248,6 +248,9 @@ export const calendar = {
   authUrl: (redirect_uri: string) =>
     get<{ url: string }>(`/calendar/auth-url?redirect_uri=${encodeURIComponent(redirect_uri)}`),
 
+  exchangeCode: (code: string) =>
+    post<{ ok: boolean }>('/calendar/exchange-code', { code }),
+
   syncAll: () =>
     post<{ calendars_synced: number; total_fetched: number; created: number; updated: number; stale_marked: number }>('/calendar/sync-all', {}),
 

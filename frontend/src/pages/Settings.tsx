@@ -160,6 +160,24 @@ function GoogleCalendarSection() {
   const qc = useQueryClient()
   const [syncing, setSyncing] = useState(false)
 
+  // Handle OAuth callback: Google redirects to /settings?code=AUTH_CODE
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search)
+    const code = params.get('code')
+    if (!code) return
+    // Clear the code from URL immediately to prevent re-exchange on re-render
+    window.history.replaceState({}, '', window.location.pathname)
+    calendar.exchangeCode(code)
+      .then(() => {
+        qc.invalidateQueries({ queryKey: ['gc-status'] })
+        toast.success('Google Calendar connected!')
+      })
+      .catch((err) => {
+        console.error('[OAuth] exchange-code failed:', err)
+        toast.error('Failed to connect Google Calendar')
+      })
+  }, [qc])
+
   const { data: gcStatus } = useQuery({
     queryKey: ['gc-status'],
     queryFn: calendar.status,

@@ -168,6 +168,8 @@ def google_exchange_code(body: ExchangeCodeRequest):
         exchange_code(body.code)
         return {"ok": True}
     except (FileNotFoundError, ValueError) as exc:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=400, detail=str(exc))
 
 

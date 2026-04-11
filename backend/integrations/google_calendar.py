@@ -130,7 +130,11 @@ def get_auth_url(redirect_uri: str) -> str:
     )
     os.makedirs(DATA_DIR, exist_ok=True)
     with open(PENDING_FILE, "w") as fh:
-        json.dump({"state": state, "redirect_uri": redirect_uri}, fh)
+        json.dump({
+            "state": state,
+            "redirect_uri": redirect_uri,
+            "code_verifier": flow.code_verifier,
+        }, fh)
     return auth_url
 
 
@@ -154,13 +158,15 @@ def exchange_code(code: str) -> None:
         raise FileNotFoundError("No pending OAuth flow found. Please start over.")
     with open(PENDING_FILE) as fh:
         pending = json.load(fh)
-    state        = pending["state"]
-    redirect_uri = pending["redirect_uri"]
+    state         = pending["state"]
+    redirect_uri  = pending["redirect_uri"]
+    code_verifier = pending.get("code_verifier")
     os.remove(PENDING_FILE)
     try:
         flow = Flow.from_client_secrets_file(
             SECRETS_FILE, scopes=SCOPES, redirect_uri=redirect_uri, state=state
         )
+        flow.code_verifier = code_verifier
         flow.fetch_token(code=code)
         _save_credentials(flow.credentials)
     except Exception as exc:

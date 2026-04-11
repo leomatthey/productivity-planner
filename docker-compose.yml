@@ -4,7 +4,7 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      - db-data:/app/data
+      - ./backend/data:/app/data
     env_file:
       - ./backend/.env
     environment:
@@ -23,5 +23,3 @@ services:
       backend:
         condition: service_healthy
 
-volumes:
-  db-data:
