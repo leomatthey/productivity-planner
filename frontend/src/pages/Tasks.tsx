@@ -401,10 +401,12 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
               </div>
               <div>
                 <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Status</label>
-                <Select value={status} onValueChange={v => setStatus(v as TaskStatus)}>
+                <Select value={status} onValueChange={v => setStatus(v as TaskStatus)} disabled={status === 'scheduled'}>
                   <SelectTrigger className="mt-1 h-8"><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {STATUS_ORDER.map(s => <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>)}
+                    {STATUS_ORDER.filter(s => s !== 'scheduled').map(s => (
+                      <SelectItem key={s} value={s}>{STATUS_LABELS[s]}</SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
               </div>
@@ -671,12 +673,14 @@ function SmartSchedulePanel({ projectsList }: {
   const eventPropGetter = useCallback((e: object) => {
     const event = e as BigCalEvent
     if (event.resource?.isProposal) {
-      const color = event.resource.proposalColor ?? '#4F46E5'
+      const raw = event.resource.proposalColor ?? '#94A3B8'
+      const isGrey = raw === NO_PROJECT_COLOR
+      const color = isGrey ? '#94A3B8' : raw  // slate-400 instead of slate-200 for visibility
       return {
         style: {
-          backgroundColor: color + '20',
+          backgroundColor: color + (isGrey ? '30' : '20'),
           border: `2px dashed ${color}`,
-          color: color,
+          color: isGrey ? '#64748B' : color,  // slate-500 text for grey proposals
           borderRadius: '4px',
           padding: '1px 4px',
         } as React.CSSProperties,
@@ -961,6 +965,7 @@ export function Tasks() {
       // Unschedule + mark done atomically
       tasks.unschedule(task.id).then(() => {
         updateTask.mutate({ id: task.id, data: { status: 'done' } })
+        qc.invalidateQueries({ queryKey: ['events'] })
       })
     } else {
       // todo/in_progress → done
