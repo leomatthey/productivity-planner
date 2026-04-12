@@ -4,7 +4,9 @@ import { toast } from 'sonner'
 import { type View } from 'react-big-calendar'
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
-import { format } from 'date-fns'
+import { format, parse, startOfWeek, getDay } from 'date-fns'
+import { dateFnsLocalizer } from 'react-big-calendar'
+import { enUS } from 'date-fns/locale'
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Circle, CheckCircle2,
   Loader2, Trash2, Tag, Calendar, Flag, List, LayoutGrid,
@@ -19,7 +21,7 @@ import { tasks, projects as projectsApi, calendar as calendarApi } from '../lib/
 import { getProjectColor, getContrastColor, NO_PROJECT_COLOR } from '../lib/colors'
 import { parseUTCDate } from '../lib/datetime'
 import {
-  localizer, DnDCalendar, toBigCalEvent, CalendarEventBlock, getEventColor,
+  DnDCalendar, toBigCalEvent, CalendarEventBlock, getEventColor,
   type BigCalEvent,
 } from '../lib/calendarSetup'
 import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, UpdateTaskRequest } from '../types'
@@ -783,6 +785,19 @@ function SmartSchedulePanel({ projectsList }: {
     }
   }
 
+  // Scheduler localizer: week starts on today's day of week so on Sunday
+  // you see Sun→Sat (7 days forward), enabling cross-week planning.
+  const schedulerLocalizer = useMemo(() => {
+    const todayDow = new Date().getDay() as 0 | 1 | 2 | 3 | 4 | 5 | 6
+    return dateFnsLocalizer({
+      format,
+      parse,
+      startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: todayDow }),
+      getDay,
+      locales: { 'en-US': enUS },
+    })
+  }, [])
+
   // Work hours for calendar bounds
   const workStart = useMemo(() => { const d = new Date(); d.setHours(7, 0, 0, 0); return d }, [])
   const workEnd = useMemo(() => { const d = new Date(); d.setHours(20, 0, 0, 0); return d }, [])
@@ -850,7 +865,7 @@ function SmartSchedulePanel({ projectsList }: {
         {/* Right: react-big-calendar — same component as main Calendar page */}
         <div className="flex-1 min-w-[480px] overflow-hidden">
           <DnDCalendar
-            localizer={localizer}
+            localizer={schedulerLocalizer}
             events={calendarEvents}
             view={'week' as View}
             date={calDate}
