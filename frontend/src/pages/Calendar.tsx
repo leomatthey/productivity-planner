@@ -1,18 +1,14 @@
 import { useState, useEffect, useRef, useMemo, useCallback, type SyntheticEvent } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Calendar as BigCalendar, dateFnsLocalizer, type View } from 'react-big-calendar'
-// Rolldown-safe CJS import: namespace import + explicit .default access
-// (Rolldown ignores __esModule flag when importer has "type": "module")
-import * as DnDAddon from 'react-big-calendar/lib/addons/dragAndDrop'
+import { type View } from 'react-big-calendar'
 import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
 import {
-  format, parse, startOfWeek, endOfWeek, getDay,
+  format, startOfWeek, endOfWeek,
   startOfMonth, endOfMonth, eachDayOfInterval,
   addMonths, subMonths, addWeeks, subWeeks, addDays, subDays,
   isToday, isSameMonth, isSameDay,
 } from 'date-fns'
-import { enUS } from 'date-fns/locale'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
 import { Plus, RefreshCw, X, MapPin, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Sidebar } from '../components/layout/Sidebar'
@@ -25,130 +21,15 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { calendar, tasks as tasksApi, projects as projectsApi } from '../lib/api'
 import { getProjectColor, NO_PROJECT_COLOR, getContrastColor } from '../lib/colors'
 import { parseUTCDate, toDatetimeLocal } from '../lib/datetime'
+import {
+  localizer, DnDCalendar, toBigCalEvent, CalendarEventBlock, getEventColor,
+  GOOGLE_CAL_COLOR, GOOGLE_CAL_COLOR_OTHER,
+  type BigCalEvent,
+} from '../lib/calendarSetup'
 import type { CalendarEvent, EventType, Task, Goal } from '../types'
 
-// ---------------------------------------------------------------------------
-// react-big-calendar localizer
-// ---------------------------------------------------------------------------
-
-const locales = { 'en-US': enUS }
-const localizer = dateFnsLocalizer({
-  format,
-  parse,
-  startOfWeek: () => startOfWeek(new Date(), { weekStartsOn: 1 }),
-  getDay,
-  locales,
-})
-
-/**
- * react-big-calendar DnD addon — imported directly from withDragAndDrop.js
- * to avoid CJS→ESM index.js interop issues with Vite 8/Rolldown.
- * The HOC erases generic types, so we define a typed props interface.
- */
-interface DnDCalendarProps {
-  localizer: ReturnType<typeof dateFnsLocalizer>
-  events: BigCalEvent[]
-  view: View
-  date: Date
-  onView: (v: View) => void
-  onNavigate: (d: Date) => void
-  onSelectEvent: (event: object, e: SyntheticEvent) => void
-  onSelectSlot: (slot: { start: Date; end: Date }) => void
-  onEventDrop: (args: { event: BigCalEvent; start: string | Date; end: string | Date }) => void
-  onEventResize: (args: { event: BigCalEvent; start: string | Date; end: string | Date }) => void
-  draggableAccessor: (event: BigCalEvent) => boolean
-  resizable: boolean
-  selectable: boolean
-  toolbar: boolean
-  style: React.CSSProperties
-  eventPropGetter: (e: object) => { style: React.CSSProperties }
-  components: object
-  formats: object
-  views: View[]
-  popup: boolean
-}
-// Rolldown double-nests CJS default exports: DnDAddon.default.default is the actual function
-// Walk the .default chain until we find the function
-let dndHoc = DnDAddon as unknown
-while (dndHoc && typeof dndHoc !== 'function' && typeof (dndHoc as Record<string, unknown>).default !== 'undefined') {
-  dndHoc = (dndHoc as Record<string, unknown>).default
-}
-const withDragAndDrop = dndHoc as (cal: typeof BigCalendar) => React.ComponentType<DnDCalendarProps>
-const DnDCalendar = withDragAndDrop(BigCalendar)
-
-// ---------------------------------------------------------------------------
-// Event colour helpers
-// ---------------------------------------------------------------------------
-
-// Unified Google Calendar colors — neutral so they don't compete with project colors
-const GOOGLE_CAL_COLOR       = '#94A3B8' // slate-400, primary calendar
-const GOOGLE_CAL_COLOR_OTHER = '#B0BEC5' // slightly lighter, other calendars
-
-const EVENT_COLOURS: Record<string, string> = {
-  meeting:       '#3B82F6',
-  personal:      '#8B5CF6',
-  reminder:      '#F59E0B',
-  task_block:    '#10B981',
-  google_import: '#94A3B8',
-}
-
-function getEventColor(
-  event: CalendarEvent,
-  calendarColors: Record<string, string>,
-  tasksList: Task[] = [],
-  projectsList: Goal[] = [],
-): string {
-  if (event.source === 'google' && event.google_calendar_id && calendarColors[event.google_calendar_id]) {
-    return calendarColors[event.google_calendar_id]
-  }
-  if (event.event_type === 'task_block') {
-    if (event.task_id) {
-      const task = tasksList.find(t => t.id === event.task_id)
-      if (task && task.project_id != null) {
-        return getProjectColor(task.project_id, projectsList)
-      }
-    }
-    return NO_PROJECT_COLOR // task_block without project → grey
-  }
-  return EVENT_COLOURS[event.event_type] ?? '#94A3B8'
-}
-
-// ---------------------------------------------------------------------------
-// BigCal event shape
-// ---------------------------------------------------------------------------
-
-interface BigCalEvent {
-  id: number
-  title: string
-  start: Date
-  end: Date
-  allDay?: boolean
-  resource: CalendarEvent
-}
-
-// Use shared UTC parser — backend stores naive UTC datetimes
+// Use shared UTC parser
 const toUTC = parseUTCDate
-
-function toBigCalEvent(e: CalendarEvent): BigCalEvent {
-  const start = toUTC(e.start_datetime)
-  const end   = toUTC(e.end_datetime)
-
-  // All-day detection: backend stores all-day events as midnight-to-midnight UTC.
-  // Check if both times have 0 hours/minutes in the RAW string (before UTC→local shift).
-  const rawStart = e.start_datetime
-  const rawEnd = e.end_datetime
-  const isAllDay = rawStart.includes('T00:00:00') && rawEnd.includes('T00:00:00') && rawStart !== rawEnd
-
-  if (isAllDay) {
-    // For all-day events, use date-only (midnight local) to avoid UTC→local time shift
-    // that makes them appear at 02:00 instead of in the all-day banner
-    const startDate = new Date(rawStart.slice(0, 10) + 'T00:00:00')
-    const endDate = new Date(rawEnd.slice(0, 10) + 'T00:00:00')
-    return { id: e.id, title: e.title, start: startDate, end: endDate, allDay: true, resource: e }
-  }
-
-  return { id: e.id, title: e.title, start, end, allDay: false, resource: e }
-}
 
 // ---------------------------------------------------------------------------
 // Toolbar date range label
@@ -406,19 +287,6 @@ function EventPopover({ state, calendarColors, calendarNames, tasksList, project
           </button>
         )}
       </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Custom event block (Google Calendar style: small time + title)
-// ---------------------------------------------------------------------------
-
-function CalendarEventBlock({ event }: { event: BigCalEvent }) {
-  return (
-    <div className="h-full overflow-hidden leading-tight px-0.5 py-0.5">
-      <div className="text-[11px] font-medium truncate">{event.title}</div>
-      {!event.allDay && <div className="text-[10px] opacity-70 truncate">{format(event.start, 'HH:mm')}</div>}
     </div>
   )
 }

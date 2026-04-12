@@ -58,20 +58,6 @@ def find_free_slots(
         if e_e > effective_start_min and e_s < work_end_min:
             raw_busy.append((max(e_s, effective_start_min), min(e_e, work_end_min)))
 
-    # Build busy intervals from already-scheduled tasks
-    all_tasks = crud.get_tasks()
-    for t in all_tasks:
-        if not t.scheduled_at:
-            continue
-        if t.scheduled_at.date() != target_date:
-            continue
-        if not t.estimated_minutes or t.estimated_minutes <= 0:
-            continue
-        t_s = t.scheduled_at.hour * 60 + t.scheduled_at.minute
-        t_e = t_s + t.estimated_minutes
-        if t_e > effective_start_min and t_s < work_end_min:
-            raw_busy.append((max(t_s, effective_start_min), min(t_e, work_end_min)))
-
     raw_busy.sort()
 
     # Merge overlapping intervals

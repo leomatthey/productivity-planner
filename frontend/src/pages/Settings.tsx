@@ -34,8 +34,11 @@ function PreferencesSection() {
 
   useEffect(() => {
     if (prefs) {
-      setWorkStart(prefs.work_start ?? '09:00')
-      setWorkEnd(prefs.work_end ?? '18:00')
+      // Scheduling engine reads work_start_hour/work_end_hour (integer strings)
+      const startHour = prefs.work_start_hour ?? '9'
+      const endHour = prefs.work_end_hour ?? '18'
+      setWorkStart(`${startHour.padStart(2, '0')}:00`)
+      setWorkEnd(`${endHour.padStart(2, '0')}:00`)
       setTheme(prefs.theme ?? 'light')
       setDirty(false)
     }
@@ -48,9 +51,12 @@ function PreferencesSection() {
 
   const savePrefs = useMutation({
     mutationFn: async () => {
+      // Save as integer hour strings — matches keys the scheduling engine reads
+      const startHour = String(parseInt(workStart.split(':')[0], 10))
+      const endHour = String(parseInt(workEnd.split(':')[0], 10))
       await Promise.all([
-        preferences.set('work_start', workStart),
-        preferences.set('work_end', workEnd),
+        preferences.set('work_start_hour', startHour),
+        preferences.set('work_end_hour', endHour),
         preferences.set('theme', theme),
       ])
     },

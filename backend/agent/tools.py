@@ -225,7 +225,8 @@ _UPDATE_TASK: dict = {
     "description": (
         "Update one or more fields of an existing task. "
         "Only provide the fields you want to change — omitted fields are left as-is. "
-        "Use this to reschedule, change status, update priority, etc."
+        "IMPORTANT: Cannot set status to 'scheduled' — use apply_schedule instead. "
+        "Cannot change status from 'scheduled' — use unschedule first."
     ),
     "input_schema": {
         "type": "object",
@@ -238,7 +239,8 @@ _UPDATE_TASK: dict = {
             "description": {"type": "string"},
             "status": {
                 "type": "string",
-                "enum": ["todo", "in_progress", "scheduled", "done"],
+                "enum": ["todo", "in_progress", "done"],
+                "description": "Cannot set to 'scheduled' here — use apply_schedule tool.",
             },
             "priority": {
                 "type": "string",
@@ -251,10 +253,6 @@ _UPDATE_TASK: dict = {
             "project_id": {
                 "type": "integer",
                 "description": "Link to a goal/project ID, or null to unlink.",
-            },
-            "scheduled_at": {
-                "type": "string",
-                "description": "ISO-8601 datetime for a specific time block.",
             },
             "estimated_minutes": {"type": "integer"},
             "energy_level": {
@@ -711,13 +709,11 @@ _SUGGEST_SCHEDULE: dict = {
     "description": (
         "Generate a suggested time-block schedule for a given day using all pending or "
         "in-progress tasks that have an estimated_minutes set. "
-        "Respects existing calendar events AND already-scheduled tasks as busy time. "
+        "Respects existing calendar events as busy time. "
         "Returns a list of proposed time blocks. "
-        "IMPORTANT: after calling this tool, you MUST apply the schedule by calling "
-        "BOTH update_task (to set scheduled_at) AND create_event (event_type='task_block', "
-        "task_id=<id>) for EVERY slot returned. Never skip create_event — without it the "
-        "calendar will not reflect the schedule and future scheduling calls will "
-        "double-book the same slot."
+        "IMPORTANT: after calling this tool, apply the schedule by calling apply_schedule "
+        "with the returned slots. This atomically sets task status and creates calendar "
+        "events. Do NOT use update_task to set scheduled status — it will be rejected."
     ),
     "input_schema": {
         "type": "object",
@@ -775,10 +771,9 @@ def _exec_create_task(args: dict) -> dict:
 def _exec_update_task(args: dict) -> dict:
     args = dict(args)  # copy — never mutate caller's dict
     task_id = args.pop("task_id")
+    args.pop("scheduled_at", None)  # scheduling goes through apply_schedule
     if "due_date" in args:
         args["due_date"] = _parse_date(args["due_date"])
-    if "scheduled_at" in args:
-        args["scheduled_at"] = _parse_dt(args["scheduled_at"])
     task = crud.update_task(task_id, **args)
     return {"updated": _task_to_dict(task)}
 

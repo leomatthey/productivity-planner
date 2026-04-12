@@ -5,6 +5,7 @@ import { AppShell } from '../components/layout/AppShell'
 import { tasks, habits, calendar } from '../lib/api'
 import type { Task, CalendarEvent } from '../types'
 import { parseUTCDate } from '../lib/datetime'
+import { EVENT_COLOURS } from '../lib/calendarSetup'
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -30,14 +31,6 @@ function formatTime(iso: string): string {
 
 function formatDate(iso: string): string {
   return parseUTCDate(iso).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-const EVENT_COLOURS: Record<string, string> = {
-  meeting:      '#3B82F6',
-  personal:     '#8B5CF6',
-  reminder:     '#F59E0B',
-  task_block:   '#10B981',
-  google_import:'#94A3B8',
 }
 
 // ---------------------------------------------------------------------------

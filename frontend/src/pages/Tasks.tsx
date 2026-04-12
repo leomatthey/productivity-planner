@@ -1,6 +1,10 @@
-import { useState, useRef, useEffect, useMemo } from 'react'
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
+import { type View } from 'react-big-calendar'
+import 'react-big-calendar/lib/addons/dragAndDrop/styles.css'
+import 'react-big-calendar/lib/css/react-big-calendar.css'
+import { format } from 'date-fns'
 import {
   Plus, Search, X, ChevronDown, ChevronRight, Circle, CheckCircle2,
   Loader2, Trash2, Tag, Calendar, Flag, List, LayoutGrid,
@@ -11,17 +15,22 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { tasks, projects as projectsApi } from '../lib/api'
-import { getProjectColor } from '../lib/colors'
-import { ScheduleCalendar, type ProposalBlock } from '../components/ScheduleCalendar'
+import { tasks, projects as projectsApi, calendar as calendarApi } from '../lib/api'
+import { getProjectColor, getContrastColor, NO_PROJECT_COLOR } from '../lib/colors'
 import { parseUTCDate } from '../lib/datetime'
-import type { Task, TaskStatus, Priority, EnergyLevel, Goal, UpdateTaskRequest } from '../types'
+import {
+  localizer, DnDCalendar, toBigCalEvent, CalendarEventBlock, getEventColor,
+  type BigCalEvent,
+} from '../lib/calendarSetup'
+import type { Task, TaskStatus, Priority, EnergyLevel, Goal, CalendarEvent, UpdateTaskRequest } from '../types'
 
-// Proposal shape returned by backend find-slots
-interface SlotProposal {
-  start: string  // ISO datetime
-  end: string    // ISO datetime
-  date: string   // ISO date
+// Proposal block shape — local state only, not persisted until confirmed
+interface ProposalBlock {
+  taskId: number
+  title: string
+  start: Date
+  end: Date
+  color: string
 }
 
 // ---------------------------------------------------------------------------
@@ -240,8 +249,6 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
   const [estimatedMins, setEstMins]   = useState<number | undefined>()
   const [energyLevel, setEnergy]      = useState<EnergyLevel | undefined>()
   const [scheduledAt, setScheduledAt] = useState<string | undefined>()
-  const [proposals, setProposals]     = useState<SlotProposal[]>([])
-  const [scheduling, setScheduling]   = useState(false)
 
   const qc = useQueryClient()
 
@@ -264,56 +271,14 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
         setEstMins(task.estimated_minutes)
         setEnergy(task.energy_level as EnergyLevel | undefined)
         setScheduledAt(task.scheduled_at)
-        setProposals([])
       } else {
         // Create mode — reset all fields, use initialTitle if provided
         setTitle(initialTitle); setDescription(''); setStatus('todo'); setPriority('medium')
         setDueDate(''); setTags(''); setProjectId(undefined); setEstMins(undefined)
-        setEnergy(undefined); setScheduledAt(undefined); setProposals([])
+        setEnergy(undefined); setScheduledAt(undefined)
       }
     }
   }, [task, open])
-
-  async function handleFindSlots() {
-    if (!task) return
-    setScheduling(true)
-    try {
-      // If user changed estimated_minutes in the modal, save it first
-      if (estimatedMins !== task.estimated_minutes) {
-        await tasks.update(task.id, { estimated_minutes: estimatedMins })
-      }
-      const result = await tasks.findSlots({ task_id: task.id, count: 3 })
-      if (result.slots.length === 0) {
-        toast.error('No free slots found in the next 14 days')
-      } else {
-        setProposals(result.slots)
-      }
-    } catch {
-      toast.error('Failed to find slots')
-    } finally {
-      setScheduling(false)
-    }
-  }
-
-  async function handleApprove(proposal: SlotProposal) {
-    if (!task) return
-    setScheduling(true)
-    try {
-      await tasks.schedule(task.id, {
-        start_datetime: proposal.start,
-        end_datetime: proposal.end,
-      })
-      // Atomic: task status + calendar event both done
-      qc.invalidateQueries({ queryKey: ['tasks'] })
-      qc.invalidateQueries({ queryKey: ['events'] })
-      toast.success('Task scheduled')
-      onClose()
-    } catch {
-      toast.error('Failed to schedule task')
-    } finally {
-      setScheduling(false)
-    }
-  }
 
   function handleSave() {
     if (!title.trim()) { toast.error('Title is required'); return }
@@ -321,14 +286,13 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
       onSave(task.id, {
         title,
         description:       description || undefined,
-        status,
+        status:            status === 'scheduled' ? undefined : status, // scheduled tasks managed via schedule/unschedule
         priority,
         due_date:          dueDate || undefined,
         tags:              tags || undefined,
         project_id:        projectId,
         estimated_minutes: estimatedMins,
         energy_level:      energyLevel,
-        scheduled_at:      scheduledAt,
         current_updated_at: task.updated_at,
       })
     } else if (onCreate) {
@@ -480,114 +444,42 @@ function TaskDetailModal({ task, open, onClose, onSave, onCreate, initialTitle =
               </Select>
             </div>
 
-            {/* ── Scheduling (edit mode only — task must exist to schedule) ── */}
-            {task && <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
-              <div className="flex items-center justify-between">
+            {/* ── Scheduling info ── */}
+            {task && status === 'scheduled' && scheduledAt ? (
+              <div className="border-t border-slate-100 dark:border-slate-700 pt-3 space-y-2">
                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Schedule</span>
-                {scheduledDisplay && (
-                  <span className="text-xs text-primary-600 dark:text-primary-400">{scheduledDisplay}</span>
-                )}
-              </div>
-              {status === 'scheduled' && scheduledAt ? (
-                /* Already scheduled — show info + reschedule option */
-                <div className="space-y-2">
-                  <div className="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-md px-3 py-2">
-                    <div className="text-xs font-medium text-primary-700 dark:text-primary-300">
-                      Scheduled for {scheduledDisplay}
-                    </div>
+                <div className="bg-primary-50 dark:bg-primary-900/20 border border-primary-200 dark:border-primary-800 rounded-md px-3 py-2">
+                  <div className="text-xs font-medium text-primary-700 dark:text-primary-300">
+                    Scheduled for {scheduledDisplay}
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={async () => {
-                      if (!task) return
-                      try {
-                        await tasks.unschedule(task.id)
-                        qc.invalidateQueries({ queryKey: ['tasks'] })
-                        qc.invalidateQueries({ queryKey: ['events'] })
-                        toast.success('Task unscheduled')
-                        onClose() // Close modal — unschedule already persisted
-                      } catch {
-                        toast.error('Failed to unschedule')
-                      }
-                    }}
-                  >
-                    Reschedule
-                  </Button>
                 </div>
-              ) : (
-                /* Not scheduled — show scheduling UI */
-                <>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleFindSlots}
-                    disabled={scheduling}
-                  >
-                    {scheduling ? <Loader2 size={14} className="animate-spin mr-1" /> : null}
-                    Find 3 Time Slots
-                  </Button>
-                  {proposals.length > 0 && (
-                    <div className="space-y-2 mt-1">
-                      {proposals.map((p, i) => {
-                        const startDate = parseUTCDate(p.start)
-                        const endDate = parseUTCDate(p.end)
-                        const dateLabel = startDate.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
-                        const timeLabel = `${startDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })} – ${endDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })}`
-                        return (
-                          <div key={i} className="border border-slate-200 dark:border-slate-600 rounded-md p-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="min-w-0">
-                                <div className="text-xs font-semibold text-slate-700 dark:text-slate-200 truncate">{dateLabel}</div>
-                                <div className="text-xs text-slate-500">{timeLabel}</div>
-                              </div>
-                              <div className="flex items-center gap-1 shrink-0">
-                                <Button
-                                  size="sm"
-                                  className="h-6 text-xs px-2"
-                                  onClick={() => handleApprove(p)}
-                                  disabled={scheduling}
-                                >
-                                  Accept
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  className="h-6 text-xs px-2"
-                                  onClick={() => setProposals(prev => prev.filter((_, idx) => idx !== i))}
-                                >
-                                  ✕
-                                </Button>
-                              </div>
-                            </div>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                  {/* Manual scheduling fallback */}
-                  {proposals.length === 0 && !scheduledAt && task && (
-                    <div className="space-y-2 mt-1">
-                      <label className="text-xs text-slate-500">Or pick a time manually:</label>
-                      <Input
-                        type="datetime-local"
-                        value={scheduledAt ?? ''}
-                        onChange={e => {
-                          setScheduledAt(e.target.value ? new Date(e.target.value).toISOString() : undefined)
-                          if (e.target.value) setStatus('scheduled')
-                        }}
-                        className="h-8 text-xs"
-                      />
-                    </div>
-                  )}
-                </>
-              )}
-            </div>}
-            {!task && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full"
+                  onClick={async () => {
+                    if (!task) return
+                    try {
+                      await tasks.unschedule(task.id)
+                      qc.invalidateQueries({ queryKey: ['tasks'] })
+                      qc.invalidateQueries({ queryKey: ['events'] })
+                      toast.success('Task unscheduled')
+                      onClose()
+                    } catch {
+                      toast.error('Failed to unschedule')
+                    }
+                  }}
+                >
+                  Unschedule
+                </Button>
+              </div>
+            ) : task ? (
               <p className="text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-3">
-                Save the task first, then open it to schedule.
+                Select this task in Smart Schedule below to find a time slot.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-400 border-t border-slate-100 dark:border-slate-700 pt-3">
+                Save the task first, then schedule via Smart Schedule below.
               </p>
             )}
 
@@ -713,7 +605,32 @@ function KanbanView({ tasks: allTasks, projectsList, onSelect }: {
 
 // ---------------------------------------------------------------------------
 // SmartSchedulePanel — Propose → Preview → Confirm flow
+// Uses react-big-calendar (same component as main Calendar) for consistency.
+// Proposals are ghost blocks (dashed, transparent) — only proposals are draggable.
 // ---------------------------------------------------------------------------
+
+function proposalToBigCalEvent(p: ProposalBlock): BigCalEvent {
+  return {
+    id: -p.taskId, // negative to avoid collision with real event IDs
+    title: p.title,
+    start: p.start,
+    end: p.end,
+    resource: {
+      id: -p.taskId,
+      title: p.title,
+      event_type: 'task_block',
+      start_datetime: p.start.toISOString(),
+      end_datetime: p.end.toISOString(),
+      is_recurring: false,
+      source: 'local' as const,
+      is_read_only: false,
+      sync_stale: false,
+      created_at: new Date().toISOString(),
+      isProposal: true,
+      proposalColor: p.color,
+    } as CalendarEvent & { isProposal: boolean; proposalColor: string },
+  }
+}
 
 function SmartSchedulePanel({ projectsList }: {
   projectsList: Goal[]
@@ -721,6 +638,7 @@ function SmartSchedulePanel({ projectsList }: {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [proposals, setProposals] = useState<ProposalBlock[]>([])
   const [loading, setLoading]     = useState(false)
+  const [calDate, setCalDate]     = useState(new Date())
 
   const qc = useQueryClient()
 
@@ -730,17 +648,79 @@ function SmartSchedulePanel({ projectsList }: {
     queryFn: () => tasks.list(),
   })
 
+  // Events from the same cache the main Calendar uses — single source of truth
+  const { data: rawEvents = [] } = useQuery({
+    queryKey: ['events'],
+    queryFn: () => calendarApi.events(),
+  })
+
   // Status is the source of truth — 'todo' and 'in_progress' are schedulable
   const unscheduledTasks = schedulerTasks.filter(
     t => (t.status === 'todo' || t.status === 'in_progress') && !t.deleted_at,
   )
+
+  // Merge real events + proposal ghost blocks into one array for react-big-calendar
+  const calendarEvents = useMemo<BigCalEvent[]>(() => [
+    ...rawEvents.map(toBigCalEvent),
+    ...proposals.map(proposalToBigCalEvent),
+  ], [rawEvents, proposals])
+
+  // Proposal-aware event styling
+  const eventPropGetter = useCallback((e: object) => {
+    const event = e as BigCalEvent
+    if (event.resource?.isProposal) {
+      const color = event.resource.proposalColor ?? '#4F46E5'
+      return {
+        style: {
+          backgroundColor: color + '20',
+          border: `2px dashed ${color}`,
+          color: color,
+          borderRadius: '4px',
+          padding: '1px 4px',
+        } as React.CSSProperties,
+      }
+    }
+    // Real events: same styling as main Calendar
+    const colour = getEventColor(event.resource, {}, schedulerTasks, projectsList)
+    return {
+      style: {
+        backgroundColor: colour,
+        border: colour === NO_PROJECT_COLOR ? '1px solid #CBD5E1' : 'none',
+        borderRadius: '4px',
+        color: getContrastColor(colour),
+        padding: '1px 4px',
+      } as React.CSSProperties,
+    }
+  }, [schedulerTasks, projectsList])
+
+  // Only proposals are draggable
+  const draggableAccessor = useCallback(
+    (event: BigCalEvent) => !!event.resource?.isProposal,
+    [],
+  )
+
+  // Drag updates local proposal state — no backend call
+  const handleEventDrop = useCallback(({ event, start, end }: {
+    event: BigCalEvent; start: string | Date; end: string | Date
+  }) => {
+    if (!event.resource?.isProposal) return
+    const taskId = Math.abs(event.id)
+    const newStart = start instanceof Date ? start : new Date(start)
+    const newEnd = end instanceof Date ? end : new Date(end)
+    setProposals(prev => prev.map(p =>
+      p.taskId === taskId ? { ...p, start: newStart, end: newEnd } : p
+    ))
+  }, [])
+
+  const components = useMemo(() => ({
+    event: (props: { event: BigCalEvent }) => <CalendarEventBlock event={props.event} />,
+  }), [])
 
   function toggleId(id: number) {
     setSelectedIds(prev => {
       const next = new Set(prev)
       if (next.has(id)) {
         next.delete(id)
-        // Remove proposal when unchecked
         setProposals(p => p.filter(pr => pr.taskId !== id))
       } else {
         next.add(id)
@@ -770,6 +750,8 @@ function SmartSchedulePanel({ projectsList }: {
       if (result.unscheduled.length > 0) {
         toast.warning(`Could not find slots for ${result.unscheduled.length} task(s)`)
       }
+      // Navigate calendar to the first proposal's date
+      if (blocks.length > 0) setCalDate(blocks[0].start)
     } catch {
       toast.error('Failed to find scheduling slots')
     } finally {
@@ -801,9 +783,10 @@ function SmartSchedulePanel({ projectsList }: {
     }
   }
 
-  function handleProposalMove(taskId: number, start: Date, end: Date) {
-    setProposals(prev => prev.map(p => p.taskId === taskId ? { ...p, start, end } : p))
-  }
+  // Work hours for calendar bounds
+  const workStart = useMemo(() => { const d = new Date(); d.setHours(7, 0, 0, 0); return d }, [])
+  const workEnd = useMemo(() => { const d = new Date(); d.setHours(20, 0, 0, 0); return d }, [])
+  const scrollTo = useMemo(() => { const d = new Date(); d.setHours(8, 0, 0, 0); return d }, [])
 
   return (
     <div className="mt-6 card">
@@ -864,13 +847,35 @@ function SmartSchedulePanel({ projectsList }: {
           </div>
         </div>
 
-        {/* Right: ScheduleCalendar with proposals */}
-        <div className="flex-1 min-w-[480px] overflow-x-auto">
-          <ScheduleCalendar
-            proposals={proposals}
-            onProposalMove={handleProposalMove}
-            tasksList={schedulerTasks}
-            projectsList={projectsList}
+        {/* Right: react-big-calendar — same component as main Calendar page */}
+        <div className="flex-1 min-w-[480px] overflow-hidden">
+          <DnDCalendar
+            localizer={localizer}
+            events={calendarEvents}
+            view={'week' as View}
+            date={calDate}
+            onView={() => {}}
+            onNavigate={d => setCalDate(d)}
+            onEventDrop={handleEventDrop}
+            onEventResize={handleEventDrop}
+            draggableAccessor={draggableAccessor}
+            resizable={false}
+            selectable={false}
+            toolbar={true}
+            style={{ height: 500 }}
+            eventPropGetter={eventPropGetter}
+            components={components}
+            formats={{
+              timeGutterFormat: (d: Date) => format(d, 'HH:mm'),
+              eventTimeRangeFormat: ({ start, end }: { start: Date; end: Date }) =>
+                `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
+            }}
+            views={['week']}
+            min={workStart}
+            max={workEnd}
+            scrollToTime={scrollTo}
+            step={15}
+            timeslots={4}
           />
         </div>
       </div>

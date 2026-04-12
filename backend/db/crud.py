@@ -113,11 +113,16 @@ def update_task(
             raise ValueError(
                 f"Task {task_id} not found, already deleted, or modified by a concurrent operation."
             )
-        # Enforce: scheduled→other status transitions MUST go through unschedule_task()
+        # Enforce: ALL scheduled transitions go through schedule_task()/unschedule_task()
         if 'status' in fields and task.status == 'scheduled' and fields['status'] != 'scheduled':
             raise ValueError(
                 f"Cannot change status from 'scheduled' to '{fields['status']}' via update_task. "
                 "Use unschedule_task() to atomically unschedule (clears events + status)."
+            )
+        if 'status' in fields and fields['status'] == 'scheduled' and task.status != 'scheduled':
+            raise ValueError(
+                "Cannot set status to 'scheduled' via update_task. "
+                "Use schedule_task() to atomically schedule (creates event + sets status)."
             )
         for key, value in fields.items():
             if hasattr(task, key):
