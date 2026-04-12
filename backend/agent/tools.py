@@ -1000,8 +1000,11 @@ def _exec_suggest_schedule(args: dict) -> dict:
     from datetime import time as time_
 
     target_date = _parse_date(args.get("date")) or date.today()
-    start_hour  = int(args.get("start_hour", 9))
-    end_hour    = int(args.get("end_hour", 18))
+    # Use user preferences as defaults; explicit args override
+    default_start = int(crud.get_preference("work_start_hour", "9"))
+    default_end   = int(crud.get_preference("work_end_hour", "18"))
+    start_hour  = int(args.get("start_hour", default_start))
+    end_hour    = int(args.get("end_hour", default_end))
 
     # All pending/in_progress tasks that have a duration estimate
     all_tasks   = crud.get_tasks()

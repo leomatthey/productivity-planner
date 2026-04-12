@@ -17,7 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
-import { tasks, projects as projectsApi, calendar as calendarApi } from '../lib/api'
+import { tasks, projects as projectsApi, calendar as calendarApi, preferences } from '../lib/api'
 import { getProjectColor, getContrastColor, NO_PROJECT_COLOR } from '../lib/colors'
 import { parseUTCDate } from '../lib/datetime'
 import {
@@ -658,6 +658,11 @@ function SmartSchedulePanel({ projectsList }: {
     queryFn: () => calendarApi.events(),
   })
 
+  const { data: prefs } = useQuery({
+    queryKey: ['preferences'],
+    queryFn: preferences.getAll,
+  })
+
   // Status is the source of truth — 'todo' and 'in_progress' are schedulable
   const unscheduledTasks = schedulerTasks.filter(
     t => (t.status === 'todo' || t.status === 'in_progress') && !t.deleted_at,
@@ -802,10 +807,9 @@ function SmartSchedulePanel({ projectsList }: {
     })
   }, [])
 
-  // Work hours for calendar bounds
-  const workStart = useMemo(() => { const d = new Date(); d.setHours(7, 0, 0, 0); return d }, [])
-  const workEnd = useMemo(() => { const d = new Date(); d.setHours(20, 0, 0, 0); return d }, [])
-  const scrollTo = useMemo(() => { const d = new Date(); d.setHours(8, 0, 0, 0); return d }, [])
+  // Scroll to work start hour — calendar shows full 24h but scrolls to relevant time
+  const prefStartHour = prefs?.work_start_hour ? parseInt(prefs.work_start_hour, 10) : 9
+  const scrollTo = useMemo(() => { const d = new Date(); d.setHours(Math.max(prefStartHour - 1, 0), 0, 0, 0); return d }, [prefStartHour])
 
   return (
     <div className="mt-6 card">
@@ -890,8 +894,6 @@ function SmartSchedulePanel({ projectsList }: {
                 `${format(start, 'HH:mm')} – ${format(end, 'HH:mm')}`,
             }}
             views={['week']}
-            min={workStart}
-            max={workEnd}
             scrollToTime={scrollTo}
             step={15}
             timeslots={4}

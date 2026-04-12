@@ -5,7 +5,6 @@ import { Save, Download, RefreshCw, Link2, Unlink, Database, Beaker } from 'luci
 import { AppShell } from '../components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Separator } from '@/components/ui/separator'
 import { preferences, calendar, analytics } from '../lib/api'
 import type { DbStats, GoogleCalendarStatus } from '../lib/api'
@@ -24,7 +23,6 @@ function PreferencesSection() {
   const qc = useQueryClient()
   const [workStart, setWorkStart] = useState('09:00')
   const [workEnd, setWorkEnd]     = useState('18:00')
-  const [theme, setTheme]         = useState(() => localStorage.getItem('theme') ?? 'light')
   const [dirty, setDirty]         = useState(false)
 
   const { data: prefs } = useQuery({
@@ -39,15 +37,9 @@ function PreferencesSection() {
       const endHour = prefs.work_end_hour ?? '18'
       setWorkStart(`${startHour.padStart(2, '0')}:00`)
       setWorkEnd(`${endHour.padStart(2, '0')}:00`)
-      setTheme(prefs.theme ?? 'light')
       setDirty(false)
     }
   }, [prefs])
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', theme === 'dark')
-    localStorage.setItem('theme', theme)
-  }, [theme])
 
   const savePrefs = useMutation({
     mutationFn: async () => {
@@ -57,7 +49,6 @@ function PreferencesSection() {
       await Promise.all([
         preferences.set('work_start_hour', startHour),
         preferences.set('work_end_hour', endHour),
-        preferences.set('theme', theme),
       ])
     },
     onSuccess: () => {
@@ -90,19 +81,6 @@ function PreferencesSection() {
             className="mt-1 h-8"
           />
         </div>
-        <div>
-          <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Theme</label>
-          <Select value={theme} onValueChange={v => { setTheme(v); setDirty(true) }}>
-            <SelectTrigger className="mt-1 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="light">Light</SelectItem>
-              <SelectItem value="dark">Dark</SelectItem>
-              <SelectItem value="system">System</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
       <Button
         size="sm"
@@ -128,7 +106,7 @@ function DbStatsSection() {
   const rows: Array<{ label: string; key: keyof DbStats }> = [
     { label: 'Tasks (active)',        key: 'tasks_active' },
     { label: 'Tasks (total)',         key: 'tasks_total' },
-    { label: 'Goals (active)',        key: 'goals_active' },
+    { label: 'Projects (active)',     key: 'goals_active' },
     { label: 'Habits (active)',       key: 'habits_active' },
     { label: 'Habit Completions',     key: 'habit_completions' },
     { label: 'Calendar Events (active)', key: 'events_active' },

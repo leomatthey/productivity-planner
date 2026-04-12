@@ -67,7 +67,13 @@ Rules:
 
 @router.get("/stats")
 def get_stats() -> Dict[str, Any]:
-    """Return rich aggregated analytics payload for all entities."""
+    """Return flat DB row counts for the Settings page."""
+    return crud.get_db_stats()
+
+
+@router.get("/full")
+def get_full_stats() -> Dict[str, Any]:
+    """Return rich aggregated analytics payload for the Analytics page."""
     return crud.get_analytics_stats()
 
 

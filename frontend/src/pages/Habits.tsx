@@ -116,21 +116,7 @@ function HabitFormDialog({ open, onClose, onSave, initial }: HabitFormProps) {
             <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Description</label>
             <Textarea value={description} onChange={e => setDesc(e.target.value)} rows={2} className="mt-1" />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Frequency</label>
-              <Select value={frequency} onValueChange={v => setFrequency(v as HabitFrequency)}>
-                <SelectTrigger className="mt-1 h-8">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="daily">Daily</SelectItem>
-                  <SelectItem value="weekdays">Weekdays</SelectItem>
-                  <SelectItem value="weekly">Weekly</SelectItem>
-                  <SelectItem value="custom">Custom</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
+          <div className="grid grid-cols-1 gap-3">
             <div>
               <label className="text-xs font-medium text-slate-500 uppercase tracking-wide">Time of Day</label>
               <Select value={timeOfDay} onValueChange={v => setTOD(v as TimeOfDay)}>

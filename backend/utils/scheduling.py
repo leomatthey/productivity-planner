@@ -5,10 +5,15 @@ Single source of truth for finding free time slots and assigning tasks.
 Used by both the API endpoints and the AI agent tools.
 """
 
-from datetime import date, datetime, time as time_, timedelta
+from datetime import date, datetime, time as time_, timedelta, timezone
 from typing import List, Optional, Tuple
 
 from db import crud
+
+
+def _utc_offset_minutes() -> int:
+    """Current UTC offset in minutes (e.g. CEST = +120)."""
+    return int(datetime.now(timezone.utc).astimezone().utcoffset().total_seconds() // 60)
 
 
 def find_free_slots(
@@ -22,21 +27,26 @@ def find_free_slots(
     Find free time slots on a given day that can fit at least `duration_minutes`.
 
     Returns list of {"start": datetime, "end": datetime, "duration_minutes": int}.
-    Respects existing calendar events AND already-scheduled tasks as busy time.
+    All returned datetimes are naive UTC — matching DB storage convention.
+    Respects existing calendar events (also stored as naive UTC) as busy time.
     For today, skips past times (rounds up to next 15-min mark).
+
+    work_start_hour / work_end_hour are in the user's LOCAL time.
+    Internally converted to UTC for comparison with DB events.
     """
     day_start_dt = datetime.combine(target_date, time_.min)
     day_end_dt = datetime.combine(target_date, time_.max)
 
-    work_start_min = work_start_hour * 60
-    work_end_min = work_end_hour * 60
+    # Convert local work hours to UTC minutes-from-midnight
+    offset = _utc_offset_minutes()
+    work_start_min = work_start_hour * 60 - offset
+    work_end_min = work_end_hour * 60 - offset
 
-    # For today: clamp work start to current time
-    # Use local time (Docker TZ must be set to user's timezone)
-    now = datetime.now()
+    # For today: clamp work start to current UTC time
+    now_utc = datetime.now(timezone.utc).replace(tzinfo=None)
     effective_start_min = work_start_min
-    if target_date == now.date():
-        now_min = now.hour * 60 + now.minute
+    if target_date == now_utc.date():
+        now_min = now_utc.hour * 60 + now_utc.minute
         if now_min > work_start_min:
             # Round up to next 15-minute mark
             rounded = ((now_min + 14) // 15) * 15
