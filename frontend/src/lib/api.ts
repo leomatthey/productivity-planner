@@ -27,6 +27,12 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
+function _formatDetail(detail: unknown): string {
+  if (typeof detail === 'string') return detail
+  if (detail == null) return ''
+  try { return JSON.stringify(detail) } catch { return String(detail) }
+}
+
 async function post<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method: 'POST',
@@ -34,10 +40,13 @@ async function post<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   })
   if (!res.ok) {
-    const detail = await res.json().catch(() => ({ detail: res.statusText }))
-    const err = new Error(`POST ${path} failed: ${res.status}`) as Error & { status: number; detail: string }
+    const payload = await res.json().catch(() => ({ detail: res.statusText }))
+    const detailStr = _formatDetail(payload?.detail ?? payload)
+    const err = new Error(
+      `POST ${path} failed: ${res.status}${detailStr ? ' — ' + detailStr : ''}`,
+    ) as Error & { status: number; detail: unknown }
     err.status = res.status
-    err.detail = detail?.detail ?? res.statusText
+    err.detail = payload?.detail ?? res.statusText
     throw err
   }
   return res.json()

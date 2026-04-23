@@ -13,7 +13,7 @@ import json
 import os
 from typing import Any, Dict
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Body, HTTPException
 import db.crud as crud
 
 router = APIRouter()
@@ -80,7 +80,7 @@ def get_full_stats() -> Dict[str, Any]:
 
 
 @router.post("/insights")
-def generate_insights(stats: Dict[str, Any]) -> Dict[str, Any]:
+def generate_insights(stats: Dict[str, Any] = Body(...)) -> Dict[str, Any]:
     """
     Send aggregated stats to Claude and return structured JSON insights.
 
