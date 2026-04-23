@@ -11,13 +11,14 @@ Usage:
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Generator, List, Optional, Tuple
 
 import anthropic
 
 import db.crud as crud
 from agent.tools import ALL_TOOLS, execute_tool
+from utils.tz import user_tz, utc_now_naive, to_local_date
 
 _MAX_ITERATIONS = 20
 
@@ -52,19 +53,19 @@ def _build_system_prompt() -> str:
         overdue_count = 0
         all_active_tasks = []
 
-    # --- Today's tasks (due today OR scheduled today) ---
+    # --- Today's tasks (due today OR scheduled today — both in user-local time) ---
     try:
         today_tasks = [
             t for t in all_active_tasks
             if (t.due_date and t.due_date == today)
-            or (t.scheduled_at and t.scheduled_at.date() == today)
+            or (t.scheduled_at and to_local_date(t.scheduled_at) == today)
         ]
     except Exception:
         today_tasks = []
 
-    # --- Next 3 calendar events ---
+    # --- Next 3 calendar events (filter in naive UTC to match DB storage) ---
     try:
-        upcoming_events = crud.get_events(start=now)[:3]
+        upcoming_events = crud.get_events(start=utc_now_naive())[:3]
     except Exception:
         upcoming_events = []
 
@@ -119,9 +120,12 @@ def _build_system_prompt() -> str:
     lines.append("")
     lines.append("Next 3 calendar events:")
     if upcoming_events:
+        tz = user_tz()
         for e in upcoming_events:
             try:
-                dt_label = e.start_datetime.strftime("%a %b %d %H:%M")
+                # Naive UTC in the DB → user-local for display.
+                local_dt = e.start_datetime.replace(tzinfo=timezone.utc).astimezone(tz)
+                dt_label = local_dt.strftime("%a %b %d %H:%M")
             except Exception:
                 dt_label = "?"
             lines.append(f"  - {e.title} @ {dt_label}")
@@ -142,9 +146,18 @@ def _build_system_prompt() -> str:
     lines.append("--- END LIVE CONTEXT ---")
     context_block = "\n".join(lines)
 
+    tz = user_tz()
+    tz_offset_str = datetime.now(tz).strftime("%z")  # e.g. "+0200"
+    tz_offset_pretty = f"UTC{tz_offset_str[:3]}:{tz_offset_str[3:]}" if tz_offset_str else "UTC"
+
     return (
         f"You are a personal productivity assistant with full read/write access to the "
         f"user's tasks, goals, habits, and calendar. Today is {today_str}.\n\n"
+        f"TIMEZONE: The user's local timezone is {tz.key} ({tz_offset_pretty}). "
+        f"All datetimes in this prompt, in tool results, and in the parameters you pass "
+        f"to tools are in the user's local timezone. You do NOT need to convert times — "
+        f"just read what you see and emit times the user would recognise. "
+        f"Naive ISO strings (no offset) are accepted and interpreted as local time.\n\n"
         "You can help the user:\n"
         "- Create, update, prioritise, and delete tasks and projects\n"
         "- Track goals and sub-goals with progress percentages\n"

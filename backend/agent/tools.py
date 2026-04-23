@@ -5,13 +5,10 @@ Each tool definition follows the Anthropic tool-use (function calling) JSON Sche
 Each executor maps 1-to-1 with a CRUD helper in db/crud.py — the same functions
 the UI uses.  This guarantees the agent and UI always operate on the same data layer.
 
-Tool registry grows incrementally per build phase:
-  Phase 3  : Task tools         (this file)
-  Phase 5  : Goal tools         (this file)
-  Phase 6  : Habit tools
-  Phase 7  : Calendar tools
-  Phase 8  : Aggregate tools
-  Phase 11 : sync_google_calendar  ✅ COMPLETE
+Timezone convention (see utils/tz.py):
+  - DB stores naive UTC.
+  - Tool inputs/outputs use ISO-8601 in the user's local timezone.
+  - Conversion happens at this boundary only; CRUD never sees TZ logic.
 """
 
 from __future__ import annotations
@@ -21,6 +18,7 @@ from typing import Any, Callable, Optional
 
 from db import crud
 from utils.date_utils import start_of_week
+from utils.tz import to_user_iso, from_user_iso, from_user_naive, to_local_date
 
 # ---------------------------------------------------------------------------
 #  Serialisation helpers
@@ -30,7 +28,8 @@ def _date_str(d: Optional[date]) -> Optional[str]:
     return d.isoformat() if d else None
 
 def _dt_str(dt: Optional[datetime]) -> Optional[str]:
-    return dt.isoformat() if dt else None
+    """Naive-UTC DB datetime → ISO-8601 in user's local timezone (with offset)."""
+    return to_user_iso(dt) if dt else None
 
 def _parse_date(s: Optional[str]) -> Optional[date]:
     if not s:
@@ -41,10 +40,14 @@ def _parse_date(s: Optional[str]) -> Optional[date]:
         return None
 
 def _parse_dt(s: Optional[str]) -> Optional[datetime]:
+    """ISO-8601 string from the model → naive-UTC datetime for the DB.
+
+    Inputs with an explicit offset are converted to UTC; naive inputs are
+    interpreted as user-local (matching what the system prompt instructs)."""
     if not s:
         return None
     try:
-        return datetime.fromisoformat(str(s))
+        return from_user_iso(str(s))
     except (ValueError, TypeError):
         return None
 
@@ -76,6 +79,7 @@ def _goal_to_dict(goal) -> dict:
         "progress_pct":  goal.progress_pct,
         "progress_mode": goal.progress_mode,
         "parent_id":     goal.parent_id,
+        "color":         goal.color,
         "created_at":    _dt_str(goal.created_at),
         "updated_at":    _dt_str(goal.updated_at),
     }
@@ -226,7 +230,7 @@ _UPDATE_TASK: dict = {
         "Update one or more fields of an existing task. "
         "Only provide the fields you want to change — omitted fields are left as-is. "
         "IMPORTANT: Cannot set status to 'scheduled' — use apply_schedule instead. "
-        "Cannot change status from 'scheduled' — use unschedule first."
+        "Cannot change status from 'scheduled' — use unschedule_task instead."
     ),
     "input_schema": {
         "type": "object",
@@ -366,6 +370,10 @@ _CREATE_GOAL: dict = {
                 "type": "integer",
                 "description": "Nest this goal under a parent goal ID (one level of nesting).",
             },
+            "color": {
+                "type": "string",
+                "description": "Optional hex colour (e.g. '#4F46E5') used by the UI to tint the project.",
+            },
         },
         "required": ["title"],
     },
@@ -407,6 +415,10 @@ _UPDATE_GOAL: dict = {
             "parent_id": {
                 "type": "integer",
                 "description": "Move under a different parent, or null to make top-level.",
+            },
+            "color": {
+                "type": "string",
+                "description": "Hex colour (e.g. '#4F46E5') used by the UI to tint the project.",
             },
         },
         "required": ["goal_id"],
@@ -512,6 +524,97 @@ _UNMARK_HABIT_COMPLETE: dict = {
     },
 }
 
+_CREATE_HABIT: dict = {
+    "name": "create_habit",
+    "description": (
+        "Create a new habit. Defaults to daily frequency, anytime time-of-day. "
+        "Use this when the user wants to start tracking a new recurring behaviour."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "title": {
+                "type": "string",
+                "description": "Habit title (required).",
+            },
+            "description": {
+                "type": "string",
+                "description": "Optional notes — what the habit means or why it matters.",
+            },
+            "frequency": {
+                "type": "string",
+                "enum": ["daily", "weekdays", "weekly", "custom"],
+                "description": "How often the habit recurs. Defaults to 'daily'.",
+            },
+            "target_days": {
+                "type": "string",
+                "description": (
+                    "JSON array of day indices (0=Mon … 6=Sun) for 'weekly' or 'custom' "
+                    "frequencies, e.g. '[0,2,4]' for Mon/Wed/Fri."
+                ),
+            },
+            "time_of_day": {
+                "type": "string",
+                "enum": ["morning", "afternoon", "evening", "anytime"],
+                "description": "Preferred time of day. Defaults to 'anytime'.",
+            },
+        },
+        "required": ["title"],
+    },
+}
+
+_UPDATE_HABIT: dict = {
+    "name": "update_habit",
+    "description": (
+        "Update one or more fields of an existing habit. "
+        "Only provide the fields you want to change — omitted fields are left as-is. "
+        "To archive (soft-delete) a habit, use archive_habit instead."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "habit_id": {
+                "type": "integer",
+                "description": "ID of the habit to update (required).",
+            },
+            "title":       {"type": "string"},
+            "description": {"type": "string"},
+            "frequency": {
+                "type": "string",
+                "enum": ["daily", "weekdays", "weekly", "custom"],
+            },
+            "target_days": {
+                "type": "string",
+                "description": "JSON array of day indices (0=Mon … 6=Sun).",
+            },
+            "time_of_day": {
+                "type": "string",
+                "enum": ["morning", "afternoon", "evening", "anytime"],
+            },
+        },
+        "required": ["habit_id"],
+    },
+}
+
+_ARCHIVE_HABIT: dict = {
+    "name": "archive_habit",
+    "description": (
+        "Archive a habit by setting is_active=false. The habit is hidden from "
+        "active queries but its history is preserved. "
+        "IMPORTANT: Always confirm with the user before calling this tool."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "habit_id": {
+                "type": "integer",
+                "description": "ID of the habit to archive.",
+            },
+        },
+        "required": ["habit_id"],
+    },
+}
+
 
 # ---------------------------------------------------------------------------
 #  Calendar event tool definitions  (Anthropic tool-use schema)
@@ -531,14 +634,16 @@ _GET_EVENTS: dict = {
             "start": {
                 "type": "string",
                 "description": (
-                    "ISO-8601 datetime (YYYY-MM-DDTHH:MM:SS). "
+                    "ISO-8601 datetime in the user's local timezone "
+                    "(naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local). "
                     "Return events that end on or after this time."
                 ),
             },
             "end": {
                 "type": "string",
                 "description": (
-                    "ISO-8601 datetime (YYYY-MM-DDTHH:MM:SS). "
+                    "ISO-8601 datetime in the user's local timezone "
+                    "(naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local). "
                     "Return events that start on or before this time."
                 ),
             },
@@ -576,11 +681,17 @@ _CREATE_EVENT: dict = {
             },
             "start_datetime": {
                 "type": "string",
-                "description": "ISO-8601 datetime (YYYY-MM-DDTHH:MM:SS) for event start (required).",
+                "description": (
+                    "ISO-8601 datetime in the user's local timezone for event start (required). "
+                    "Naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local."
+                ),
             },
             "end_datetime": {
                 "type": "string",
-                "description": "ISO-8601 datetime (YYYY-MM-DDTHH:MM:SS) for event end (required).",
+                "description": (
+                    "ISO-8601 datetime in the user's local timezone for event end (required). "
+                    "Naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local."
+                ),
             },
             "description": {
                 "type": "string",
@@ -626,11 +737,17 @@ _UPDATE_EVENT: dict = {
             },
             "start_datetime": {
                 "type": "string",
-                "description": "ISO-8601 datetime (YYYY-MM-DDTHH:MM:SS).",
+                "description": (
+                    "ISO-8601 datetime in the user's local timezone "
+                    "(naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local)."
+                ),
             },
             "end_datetime": {
                 "type": "string",
-                "description": "ISO-8601 datetime (YYYY-MM-DDTHH:MM:SS).",
+                "description": (
+                    "ISO-8601 datetime in the user's local timezone "
+                    "(naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local)."
+                ),
             },
             "location": {"type": "string"},
             "task_id": {
@@ -661,9 +778,43 @@ _DELETE_EVENT: dict = {
     },
 }
 
+_MOVE_EVENT: dict = {
+    "name": "move_event",
+    "description": (
+        "Atomically move and/or resize a local calendar event. If the event is a "
+        "task_block linked to a task, the task's scheduled_at is updated to match — "
+        "use this instead of delete_event + create_event to keep task and event in sync. "
+        "Cannot move Google Calendar events (is_read_only=true)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "event_id": {
+                "type": "integer",
+                "description": "ID of the event to move (required).",
+            },
+            "start_datetime": {
+                "type": "string",
+                "description": (
+                    "New start, ISO-8601 in user's local timezone "
+                    "(naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local)."
+                ),
+            },
+            "end_datetime": {
+                "type": "string",
+                "description": (
+                    "New end, ISO-8601 in user's local timezone "
+                    "(naive YYYY-MM-DDTHH:MM:SS is fine — interpreted as local)."
+                ),
+            },
+        },
+        "required": ["event_id", "start_datetime", "end_datetime"],
+    },
+}
+
 
 # ---------------------------------------------------------------------------
-#  Aggregate tool definitions  (Phase 8)
+#  Aggregate tool definitions
 # ---------------------------------------------------------------------------
 
 _GET_TODAY_OVERVIEW: dict = {
@@ -806,6 +957,7 @@ def _exec_create_goal(args: dict) -> dict:
         progress_pct=args.get("progress_pct", 0),
         progress_mode=args.get("progress_mode", "manual"),
         parent_id=args.get("parent_id"),
+        color=args.get("color"),
     )
     return {"created": _goal_to_dict(goal)}
 
@@ -866,6 +1018,29 @@ def _exec_unmark_habit_complete(args: dict) -> dict:
     return {"deleted": deleted, "habit_id": habit_id, "completed_date": _date_str(completed_date)}
 
 
+def _exec_create_habit(args: dict) -> dict:
+    habit = crud.create_habit(
+        title=args["title"],
+        description=args.get("description"),
+        frequency=args.get("frequency", "daily"),
+        target_days=args.get("target_days"),
+        time_of_day=args.get("time_of_day", "anytime"),
+    )
+    return {"created": _habit_to_dict(habit)}
+
+
+def _exec_update_habit(args: dict) -> dict:
+    args = dict(args)  # copy — never mutate caller's dict
+    habit_id = args.pop("habit_id")
+    habit = crud.update_habit(habit_id, **args)
+    return {"updated": _habit_to_dict(habit)}
+
+
+def _exec_archive_habit(args: dict) -> dict:
+    habit = crud.archive_habit(args["habit_id"])
+    return {"archived": _habit_to_dict(habit)}
+
+
 # ---------------------------------------------------------------------------
 #  Calendar event executors
 # ---------------------------------------------------------------------------
@@ -910,26 +1085,34 @@ def _exec_delete_event(args: dict) -> dict:
     return {"deleted": {"id": event.id, "title": event.title}}
 
 
+def _exec_move_event(args: dict) -> dict:
+    start_dt = _parse_dt(args["start_datetime"])
+    end_dt   = _parse_dt(args["end_datetime"])
+    event = crud.move_event(args["event_id"], start_dt, end_dt)
+    return {"moved": _event_to_dict(event)}
+
+
 # ---------------------------------------------------------------------------
-#  Aggregate executors  (Phase 8)
+#  Aggregate executors
 # ---------------------------------------------------------------------------
 
 def _exec_get_today_overview(args: dict) -> dict:  # noqa: ARG001
     from datetime import time as time_
 
     today_ = date.today()
-    today_start = datetime.combine(today_, time_.min)
-    today_end   = datetime.combine(today_, time_.max)
+    # Build local-day boundaries, then convert to naive UTC for the DB query.
+    today_start = from_user_naive(datetime.combine(today_, time_.min))
+    today_end   = from_user_naive(datetime.combine(today_, time_.max))
 
     # Tasks due today (by due_date)
     due_today = crud.get_tasks(due_date_from=today_, due_date_to=today_)
     due_ids   = {t.id for t in due_today}
 
-    # Tasks scheduled today (scheduled_at.date() == today) but not already in due_today
+    # Tasks scheduled today — convert naive-UTC scheduled_at to local date.
     all_active = crud.get_tasks()
     scheduled_today = [
         t for t in all_active
-        if t.scheduled_at and t.scheduled_at.date() == today_ and t.id not in due_ids
+        if t.scheduled_at and to_local_date(t.scheduled_at) == today_ and t.id not in due_ids
     ]
 
     tasks = due_today + scheduled_today
@@ -962,8 +1145,9 @@ def _exec_get_weekly_summary(args: dict) -> dict:
     week_start  = start_of_week(today_) + timedelta(weeks=week_offset)
     week_end    = week_start + timedelta(days=6)
 
-    week_start_dt = datetime.combine(week_start, time_.min)
-    week_end_dt   = datetime.combine(week_end,   time_.max)
+    # Local week bounds → naive UTC for the DB query.
+    week_start_dt = from_user_naive(datetime.combine(week_start, time_.min))
+    week_end_dt   = from_user_naive(datetime.combine(week_end,   time_.max))
 
     # Tasks due within the week
     tasks = crud.get_tasks(due_date_from=week_start, due_date_to=week_end)
@@ -1059,11 +1243,14 @@ def _exec_suggest_schedule(args: dict) -> dict:
             if (slot_end - avail_start) >= duration:
                 s_h, s_m = divmod(avail_start, 60)
                 e_h, e_m = divmod(avail_start + duration, 60)
+                # Build local-naive datetimes, then emit as UTC-via-local-iso.
+                start_local = from_user_naive(datetime.combine(target_date, time_(s_h, s_m)))
+                end_local   = from_user_naive(datetime.combine(target_date, time_(e_h, e_m)))
                 schedule.append({
                     "task_id":           task.id,
                     "title":             task.title,
-                    "start":             datetime.combine(target_date, time_(s_h, s_m)).isoformat(),
-                    "end":               datetime.combine(target_date, time_(e_h, e_m)).isoformat(),
+                    "start":             to_user_iso(start_local),
+                    "end":               to_user_iso(end_local),
                     "energy_level":      task.energy_level,
                     "priority":          task.priority,
                     "estimated_minutes": task.estimated_minutes,
@@ -1080,9 +1267,30 @@ def _exec_suggest_schedule(args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-#  apply_schedule tool — Sprint 2
-#  Batch-schedules N tasks in a single tool call, replacing N update_task calls.
+#  Scheduling tools
+#  unschedule_task: atomic reverse of schedule_task.
+#  apply_schedule: batch-schedule N tasks in one call (replaces N update_task calls).
 # ---------------------------------------------------------------------------
+
+_UNSCHEDULE_TASK: dict = {
+    "name": "unschedule_task",
+    "description": (
+        "Atomically unschedule a task: deletes its task_block calendar events "
+        "and resets the task status from 'scheduled' back to 'todo'. "
+        "Use this when the user wants to remove a scheduled task from their day "
+        "(rather than calling update_task or delete_event individually)."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "task_id": {
+                "type": "integer",
+                "description": "ID of the task to unschedule (required).",
+            },
+        },
+        "required": ["task_id"],
+    },
+}
 
 _APPLY_SCHEDULE: dict = {
     "name": "apply_schedule",
@@ -1109,13 +1317,16 @@ _APPLY_SCHEDULE: dict = {
                         },
                         "scheduled_date": {
                             "type": "string",
-                            "description": "ISO date string (YYYY-MM-DD) for the scheduled day.",
+                            "description": (
+                                "Local date (YYYY-MM-DD) for the scheduled day, "
+                                "in the user's timezone."
+                            ),
                         },
                         "scheduled_time": {
                             "type": "string",
                             "description": (
-                                "Optional time string (HH:MM) for the start time. "
-                                "Defaults to 09:00 if omitted."
+                                "Optional local time (HH:MM) for the start time, "
+                                "in the user's timezone. Defaults to 09:00 if omitted."
                             ),
                         },
                     },
@@ -1126,6 +1337,14 @@ _APPLY_SCHEDULE: dict = {
         "required": ["items"],
     },
 }
+
+
+def _exec_unschedule_task(args: dict) -> dict:
+    task, deleted_event_ids = crud.unschedule_task(args["task_id"])
+    return {
+        "unscheduled": _task_to_dict(task),
+        "deleted_event_ids": list(deleted_event_ids),
+    }
 
 
 def _exec_apply_schedule(args: dict) -> dict:
@@ -1163,7 +1382,8 @@ def _exec_apply_schedule(args: dict) -> dict:
                 hour, minute = 9, 0
 
             from datetime import time as time_
-            start_dt = datetime.combine(date_obj, time_(hour, minute))
+            # Treat scheduled_date+time as user-local; convert to naive UTC for the DB.
+            start_dt = from_user_naive(datetime.combine(date_obj, time_(hour, minute)))
 
             # Get task duration to calculate end time
             all_tasks = crud.get_tasks()
@@ -1192,7 +1412,7 @@ def _exec_apply_schedule(args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-#  Google Calendar sync tool definition  (Phase 11)
+#  Google Calendar sync tool definition
 # ---------------------------------------------------------------------------
 
 _SYNC_GOOGLE_CALENDAR: dict = {
@@ -1223,7 +1443,7 @@ _SYNC_GOOGLE_CALENDAR: dict = {
 
 
 # ---------------------------------------------------------------------------
-#  Google Calendar sync executor  (Phase 11)
+#  Google Calendar sync executor
 # ---------------------------------------------------------------------------
 
 def _exec_sync_google_calendar(args: dict) -> dict:
@@ -1241,16 +1461,71 @@ def _exec_sync_google_calendar(args: dict) -> dict:
 
 
 # ---------------------------------------------------------------------------
-#  Tool registry — grows as phases are completed
+#  User preference tool definitions
 # ---------------------------------------------------------------------------
 
-TASK_TOOLS: list[dict]      = [_GET_TASKS, _CREATE_TASK, _UPDATE_TASK, _DELETE_TASK]
-GOAL_TOOLS: list[dict]      = [_GET_GOALS, _CREATE_GOAL, _UPDATE_GOAL, _DELETE_GOAL]
-HABIT_TOOLS: list[dict]     = [_GET_HABITS, _MARK_HABIT_COMPLETE, _UNMARK_HABIT_COMPLETE]
-CALENDAR_TOOLS: list[dict]  = [_GET_EVENTS, _CREATE_EVENT, _UPDATE_EVENT, _DELETE_EVENT]
-AGGREGATE_TOOLS: list[dict] = [_GET_TODAY_OVERVIEW, _GET_WEEKLY_SUMMARY, _SUGGEST_SCHEDULE]
+_GET_USER_PREFERENCE: dict = {
+    "name": "get_user_preference",
+    "description": (
+        "Look up a single user-preference value by key. Returns null if unset. "
+        "Common keys: 'work_start_hour', 'work_end_hour', 'schedule_buffer_minutes'."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "key": {
+                "type": "string",
+                "description": "Preference key (required).",
+            },
+        },
+        "required": ["key"],
+    },
+}
+
+_SET_USER_PREFERENCE: dict = {
+    "name": "set_user_preference",
+    "description": (
+        "Set or update a single user-preference value. Upsert — creates the key "
+        "if missing, otherwise replaces the existing value. "
+        "Common keys: 'work_start_hour' (e.g. '9'), 'work_end_hour' (e.g. '18'), "
+        "'schedule_buffer_minutes' (e.g. '15'). Values are stored as strings."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "key":   {"type": "string", "description": "Preference key (required)."},
+            "value": {"type": "string", "description": "Preference value (required, stored as string)."},
+        },
+        "required": ["key", "value"],
+    },
+}
+
+
+def _exec_get_user_preference(args: dict) -> dict:
+    value = crud.get_preference(args["key"])
+    return {"key": args["key"], "value": value}
+
+
+def _exec_set_user_preference(args: dict) -> dict:
+    pref = crud.set_preference(args["key"], str(args["value"]))
+    return {"key": pref.key, "value": pref.value}
+
+
+# ---------------------------------------------------------------------------
+#  Tool registry
+# ---------------------------------------------------------------------------
+
+TASK_TOOLS: list[dict]        = [_GET_TASKS, _CREATE_TASK, _UPDATE_TASK, _DELETE_TASK]
+GOAL_TOOLS: list[dict]        = [_GET_GOALS, _CREATE_GOAL, _UPDATE_GOAL, _DELETE_GOAL]
+HABIT_TOOLS: list[dict]       = [
+    _GET_HABITS, _CREATE_HABIT, _UPDATE_HABIT, _ARCHIVE_HABIT,
+    _MARK_HABIT_COMPLETE, _UNMARK_HABIT_COMPLETE,
+]
+CALENDAR_TOOLS: list[dict]    = [_GET_EVENTS, _CREATE_EVENT, _UPDATE_EVENT, _DELETE_EVENT, _MOVE_EVENT]
+AGGREGATE_TOOLS: list[dict]   = [_GET_TODAY_OVERVIEW, _GET_WEEKLY_SUMMARY, _SUGGEST_SCHEDULE]
 INTEGRATION_TOOLS: list[dict] = [_SYNC_GOOGLE_CALENDAR]
-SCHEDULING_TOOLS: list[dict] = [_APPLY_SCHEDULE]  # Sprint 2
+SCHEDULING_TOOLS: list[dict]  = [_APPLY_SCHEDULE, _UNSCHEDULE_TASK]
+PREFERENCE_TOOLS: list[dict]  = [_GET_USER_PREFERENCE, _SET_USER_PREFERENCE]
 
 # Flat list passed to the Claude API `tools` parameter
 ALL_TOOLS: list[dict] = [
@@ -1261,6 +1536,7 @@ ALL_TOOLS: list[dict] = [
     *AGGREGATE_TOOLS,
     *INTEGRATION_TOOLS,
     *SCHEDULING_TOOLS,
+    *PREFERENCE_TOOLS,
 ]
 
 _EXECUTORS: dict[str, Callable[[dict], dict]] = {
@@ -1273,17 +1549,24 @@ _EXECUTORS: dict[str, Callable[[dict], dict]] = {
     "update_goal":             _exec_update_goal,
     "delete_goal":             _exec_delete_goal,
     "get_habits":              _exec_get_habits,
+    "create_habit":            _exec_create_habit,
+    "update_habit":            _exec_update_habit,
+    "archive_habit":           _exec_archive_habit,
     "mark_habit_complete":     _exec_mark_habit_complete,
     "unmark_habit_complete":   _exec_unmark_habit_complete,
     "get_events":              _exec_get_events,
     "create_event":            _exec_create_event,
     "update_event":            _exec_update_event,
     "delete_event":            _exec_delete_event,
+    "move_event":              _exec_move_event,
     "get_today_overview":      _exec_get_today_overview,
     "get_weekly_summary":      _exec_get_weekly_summary,
     "suggest_schedule":        _exec_suggest_schedule,
     "sync_google_calendar":    _exec_sync_google_calendar,
-    "apply_schedule":          _exec_apply_schedule,   # Sprint 2
+    "apply_schedule":          _exec_apply_schedule,
+    "unschedule_task":         _exec_unschedule_task,
+    "get_user_preference":     _exec_get_user_preference,
+    "set_user_preference":     _exec_set_user_preference,
 }
 
 
