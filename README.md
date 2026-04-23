@@ -1,6 +1,6 @@
 # Stride — Productivity AI
 
-A calm, well-designed personal planner that lives on your laptop, paired with a Claude-powered assistant that has full read/write access to your tasks, projects, habits, and calendar. Built as the **Assignment 1 submission for *Prototyping with Data & AI* (ESADE MiBA, Spring 2026)**.
+A calm, well-designed personal planner that lives on your laptop, paired with a Claude-powered assistant that has full read/write access to your tasks, projects, habits, and calendar. Built as the **Assignment 3 submission for *Prototyping with Data & AI* (ESADE MiBA, April 2026)**.
 
 > **One-line setup:** clone, paste an Anthropic key into `backend/.env`, run `docker-compose up --build`. First boot auto-seeds a rich showcase dataset — the app is populated and ready to demo on `http://localhost:3000`.
 
@@ -10,7 +10,7 @@ A calm, well-designed personal planner that lives on your laptop, paired with a 
 
 Stride is intentionally **not deployed online**. It's a single-user personal-productivity app: there is no auth layer, no multi-tenant isolation, no per-user data partition. Deploying it would require building all of that — multi-user auth, per-user OAuth callback URLs, data isolation, hosted DB — for zero user benefit. Your data (chats, tasks, calendar links, OAuth tokens) belongs on your own machine.
 
-The Docker setup in this repo *is* the production setup — for yourself. The professor can clone the repo, run two commands, and have a fully functional copy in five minutes.
+The Docker setup in this repo *is* the production setup — for yourself. You can clone the repo, run two commands, and have a fully functional copy in five minutes.
 
 ---
 
@@ -114,9 +114,9 @@ Every tab has a one-time explainer modal on first session visit — click the `?
 
 ---
 
-## AI integration (assignment compliance)
+## AI integration
 
-This submission ships **two distinct LLM-powered features**, as required:
+This application ships **two distinct LLM-powered features**:
 
 ### Feature 1 — AI Assistant (multi-call tool-use loop)
 
