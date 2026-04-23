@@ -1,8 +1,10 @@
-import { NavLink } from 'react-router-dom'
+import { Link, NavLink } from 'react-router-dom'
 import {
   LayoutDashboard, CheckSquare, Target, CalendarDays,
   Repeat2, Bot, BarChart2, Settings2,
 } from 'lucide-react'
+
+import { Logo } from '../brand/Logo'
 
 const navItems = [
   { to: '/',          icon: LayoutDashboard, label: 'Dashboard' },
@@ -20,18 +22,23 @@ export function Sidebar() {
     <aside className="fixed top-0 left-0 h-screen w-[240px] bg-slate-50 dark:bg-slate-800
                       border-r border-slate-200 dark:border-slate-700 flex flex-col z-20">
 
-      {/* Brand */}
-      <div className="h-[52px] flex items-center px-4 border-b border-slate-200 dark:border-slate-700 shrink-0">
-        <div>
-          <div className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight leading-none">
-            Planner
+      {/* Brand — clicking returns to the welcome page */}
+      <Link
+        to="/welcome"
+        className="h-[52px] flex items-center gap-2.5 px-4 border-b border-slate-200 dark:border-slate-700
+                   shrink-0 hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors group"
+        title="Open the welcome page"
+      >
+        <Logo size={22} className="text-primary group-hover:text-primary-700 transition-colors" />
+        <div className="leading-none">
+          <div className="text-base font-bold text-slate-900 dark:text-slate-100 tracking-tight">
+            Stride
           </div>
-          <div className="text-xs font-medium text-slate-400 uppercase tracking-widest
-                          leading-none mt-0.5">
-            Personal
+          <div className="text-[10px] font-medium text-slate-400 uppercase tracking-widest mt-0.5">
+            Productivity AI
           </div>
         </div>
-      </div>
+      </Link>
 
       {/* Nav */}
       <nav className="flex-1 overflow-y-auto p-2">

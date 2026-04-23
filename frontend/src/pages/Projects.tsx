@@ -12,6 +12,8 @@ import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Progress } from '@/components/ui/progress'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AIChatPanel } from '../components/ai/AIChatPanel'
+import { useTabExplainer } from '../components/TabExplainer'
 import { projects, tasks } from '../lib/api'
 import { PROJECT_COLORS, getSubProjectColor } from '../lib/colors'
 import type { Goal, GoalStatus, Task } from '../types'
@@ -612,14 +614,30 @@ export function Projects() {
   const topLevel   = allProjects.filter(p => !p.parent_id && !p.deleted_at)
   const subOf      = (parentId: number) => allProjects.filter(p => p.parent_id === parentId && !p.deleted_at)
 
+  const projectsExplainer = useTabExplainer({
+    storageKey: 'explainer-projects',
+    title: 'Projects',
+    subtitle: 'Long-term goals, broken into subprojects and tasks. Your portfolio at a glance.',
+    highlights: [
+      { icon: Target,        title: 'Hierarchy',         body: 'Top-level projects can hold subprojects. Each gets a colour, deadline, and progress %.' },
+      { icon: CheckCircle2,  title: 'Auto progress',     body: 'Set progress_mode to "auto" and the % is computed from linked task completion.' },
+      { icon: Plus,          title: 'Quick task add',    body: 'Inside a project card, add tasks inline without leaving the page.' },
+    ],
+    tip: 'Tip: the AI Assistant below is restricted to task-level changes — use the New Project button to create projects.',
+  })
+
   const action = (
-    <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}>
-      <Plus size={14} className="mr-1" /> New Project
-    </Button>
+    <div className="flex items-center gap-2">
+      {projectsExplainer.button}
+      <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}>
+        <Plus size={14} className="mr-1" /> New Project
+      </Button>
+    </div>
   )
 
   return (
     <AppShell title="Projects" action={action}>
+      {projectsExplainer.dialog}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
           {[1, 2, 3].map(i => (
@@ -660,6 +678,23 @@ export function Projects() {
           ))}
         </div>
       )}
+
+      {/* In-page AI assistant — restricted to task-level operations on
+          existing projects/subprojects (no goal creation/modification). */}
+      <div className="mt-6">
+        <AIChatPanel
+          contextLabel="Projects Assistant"
+          sessionId="panel-projects"
+          panelContext="projects"
+          introTitle="Add and refine tasks across your existing projects."
+          starterChips={[
+            'Add 5 tasks to PDAI to wrap it up before the deadline',
+            'Suggest the next 3 tasks for my most overdue project',
+            'List my projects with their status and what\'s missing',
+            'Spread the workload — propose tasks across all my active projects',
+          ]}
+        />
+      </div>
 
       <ProjectFormDialog
         open={formOpen}

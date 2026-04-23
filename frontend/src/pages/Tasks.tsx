@@ -12,6 +12,8 @@ import {
   Loader2, Trash2, Tag, Calendar, Flag, List, LayoutGrid,
 } from 'lucide-react'
 import { AppShell } from '../components/layout/AppShell'
+import { AIChatPanel } from '../components/ai/AIChatPanel'
+import { useTabExplainer } from '../components/TabExplainer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
@@ -923,6 +925,18 @@ export function Tasks() {
   const quickAddTextRef = useRef<{ value: string; clear: () => void }>({ value: '', clear: () => {} })
   const [modalOpen, setModalOpen]  = useState(false)
 
+  const tasksExplainer = useTabExplainer({
+    storageKey: 'explainer-tasks',
+    title: 'Tasks',
+    subtitle: 'Capture, organise, and complete what you\'re working on. List view, kanban, smart scheduling, AI helper.',
+    highlights: [
+      { icon: Plus,        title: 'Quick add',          body: 'Type at the top, hit Enter — instant capture. Use "Add Details" for a full task form.' },
+      { icon: LayoutGrid,  title: 'List & Kanban',      body: 'Switch views, filter by project / priority / status, sort by due date. Search live.' },
+      { icon: Calendar,    title: 'Smart scheduler',    body: 'The AI assistant below proposes time blocks for unscheduled tasks — confirm to apply.' },
+    ],
+    tip: 'Tip: ask the AI Assistant for "a 60-min light cardio workout" — it generates a richly-described task in one shot.',
+  })
+
   const undoRef = useRef<{ task: Task; timer: ReturnType<typeof setTimeout> } | null>(null)
 
   const { data: allTasks = [], isLoading } = useQuery({
@@ -1034,7 +1048,8 @@ export function Tasks() {
   }
 
   return (
-    <AppShell title="Tasks">
+    <AppShell title="Tasks" action={tasksExplainer.button}>
+      {tasksExplainer.dialog}
       {/* Unified toolbar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {/* Search */}
@@ -1140,6 +1155,22 @@ export function Tasks() {
         >
           Add Details
         </Button>
+      </div>
+
+      {/* In-page AI assistant — between Quick Add and the task list */}
+      <div className="mb-6">
+        <AIChatPanel
+          contextLabel="Tasks Assistant"
+          sessionId="panel-tasks"
+          panelContext="tasks"
+          introTitle="Generate rich, ready-to-do tasks."
+          starterChips={[
+            'Generate a workout — I have 60 minutes and want light cardio',
+            'Build a shopping list task for: Sunday lunch with friends (4 people)',
+            'Plan my next 2-hour focus block for: BCG case prep',
+            'Create a meeting prep checklist for: my advisor sync tomorrow',
+          ]}
+        />
       </div>
 
       {/* Main content */}

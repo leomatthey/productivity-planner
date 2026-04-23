@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Plus, Flame, CheckCircle2, Circle, Pencil, Archive, Repeat2 } from 'lucide-react'
+import { Plus, Flame, CheckCircle2, Circle, Pencil, Archive, Repeat2, CalendarDays } from 'lucide-react'
+import { useTabExplainer } from '../components/TabExplainer'
 import { AppShell } from '../components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { AIChatPanel } from '../components/ai/AIChatPanel'
 import { habits } from '../lib/api'
 import type { HabitOut } from '../lib/api'
 import type { HabitFrequency, TimeOfDay } from '../types'
@@ -302,14 +304,30 @@ export function Habits() {
     }
   }
 
+  const habitsExplainer = useTabExplainer({
+    storageKey: 'explainer-habits',
+    title: 'Habits',
+    subtitle: 'Build streaks, track consistency, and design routines that actually stick.',
+    highlights: [
+      { icon: Repeat2,      title: 'Flexible frequency', body: 'Daily, weekdays, weekly, or custom — pick a cadence and time-of-day that matches your life.' },
+      { icon: Flame,        title: 'Streak tracking',    body: 'Current and best streaks surface automatically. Tick off habits with one click.' },
+      { icon: CalendarDays, title: '30-day grid',        body: 'Visualise consistency over the last 30 days — gaps are easy to spot.' },
+    ],
+    tip: 'Tip: ask the AI Assistant below for a habit plan — e.g. "help me sleep better" — it\'ll propose 2-3 habits with deliberate frequency.',
+  })
+
   const action = (
-    <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}>
-      <Plus size={14} className="mr-1" /> New Habit
-    </Button>
+    <div className="flex items-center gap-2">
+      {habitsExplainer.button}
+      <Button size="sm" onClick={() => { setEditing(null); setFormOpen(true) }}>
+        <Plus size={14} className="mr-1" /> New Habit
+      </Button>
+    </div>
   )
 
   return (
     <AppShell title="Habits" action={action}>
+      {habitsExplainer.dialog}
       {isLoading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {[1, 2, 3, 4].map(i => (
@@ -338,6 +356,22 @@ export function Habits() {
           ))}
         </div>
       )}
+
+      {/* In-page AI assistant — full habits + tasks scope. */}
+      <div className="mt-6">
+        <AIChatPanel
+          contextLabel="Habits Assistant"
+          sessionId="panel-habits"
+          panelContext="habits"
+          introTitle="Design habits that stick."
+          starterChips={[
+            'Help me build habits to sleep better',
+            'Suggest a morning routine of 3 short habits',
+            'What habits would help me have more energy in the afternoon?',
+            'Replace my "scroll phone in bed" habit with something better',
+          ]}
+        />
+      </div>
 
       <HabitFormDialog
         open={formOpen}

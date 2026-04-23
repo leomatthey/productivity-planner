@@ -10,7 +10,8 @@ import {
   isToday, isSameMonth, isSameDay,
 } from 'date-fns'
 import 'react-big-calendar/lib/css/react-big-calendar.css'
-import { Plus, RefreshCw, X, MapPin, Clock, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, RefreshCw, X, MapPin, Clock, ChevronLeft, ChevronRight, CalendarDays, Link2, Move } from 'lucide-react'
+import { useTabExplainer } from '../components/TabExplainer'
 import { Sidebar } from '../components/layout/Sidebar'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -536,6 +537,18 @@ export function Calendar() {
   const [hidden, setHidden]         = useState<Set<string>>(new Set())
   const [sidebarOpen, setSidebarOpen] = useState(true)
 
+  const calendarExplainer = useTabExplainer({
+    storageKey: 'explainer-calendar',
+    title: 'Calendar',
+    subtitle: 'All your events in one view. Drag to reschedule — with Google Calendar sync.',
+    highlights: [
+      { icon: CalendarDays, title: 'Month / Week / Day', body: 'Switch view mode in the top right. Navigate by week with the arrows.' },
+      { icon: Link2,        title: 'Google sync',        body: 'Click "Sync Google" to pull your real events in. They show up read-only and are respected by the scheduler.' },
+      { icon: Move,         title: 'Drag & drop',        body: 'Drag any local event to reschedule. Linked tasks keep their scheduled_at in sync automatically.' },
+    ],
+    tip: 'Tip: event colour follows the linked project\'s colour; Google events show in a neutral shade.',
+  })
+
   // Fetch window: 2 months around current date
   const viewStart = new Date(date.getFullYear(), date.getMonth() - 1, 1)
   const viewEnd   = new Date(date.getFullYear(), date.getMonth() + 2, 0)
@@ -707,6 +720,7 @@ export function Calendar() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-slate-900">
+      {calendarExplainer.dialog}
       <Sidebar />
 
       <div className="ml-[240px] flex flex-col flex-1 overflow-hidden min-w-0">
@@ -751,6 +765,7 @@ export function Calendar() {
             <Button size="sm" onClick={() => { setEditing(null); setDefStart(new Date()); setFormOpen(true) }} className="h-8">
               <Plus size={14} className="mr-1" /> New Event
             </Button>
+            {calendarExplainer.button}
             {/* View toggle */}
             <div className="flex border border-slate-200 dark:border-slate-600 rounded-md overflow-hidden ml-1">
               {(['month', 'week', 'day'] as View[]).map(v => (

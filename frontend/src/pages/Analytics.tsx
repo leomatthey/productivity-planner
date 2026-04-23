@@ -28,6 +28,7 @@ import {
 } from 'lucide-react'
 
 import { AppShell } from '../components/layout/AppShell'
+import { useTabExplainer } from '../components/TabExplainer'
 import { analytics } from '../lib/api'
 import type {
   AnalyticsStats, AnalyticsInsights, InsightHighlight,
@@ -851,21 +852,37 @@ export function Analytics() {
 
   const insightsError = insightsMutation.error as Error | null
 
+  const analyticsExplainer = useTabExplainer({
+    storageKey: 'explainer-analytics',
+    title: 'Analytics',
+    subtitle: 'An executive dashboard — what\'s on track, where time is going, what\'s slipping.',
+    highlights: [
+      { icon: Activity,    title: 'Hero metrics',         body: 'Done this week / Hours scheduled / Projects on track / Habit consistency — all with a Δ vs last week.' },
+      { icon: AlertTriangle,title: 'Project Health Board', body: 'Per-project RAG status (On Track / At Risk / Off Track) using rolled-up tasks across subprojects.' },
+      { icon: Sparkles,    title: 'AI insights',          body: '"Generate Insights" produces a concrete executive summary that names specific projects, habits, and numbers.' },
+    ],
+    tip: 'Tip: the LLM also flags charts to highlight by mapping each "metric" key to a chart card — watch the rings glow.',
+  })
+
   return (
     <AppShell
       title="Analytics"
       action={
-        <button
-          className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium
-                     hover:bg-primary-700 transition-colors duration-100 disabled:opacity-50 shadow-sm"
-          onClick={() => insightsMutation.mutate()}
-          disabled={insightsMutation.isPending || statsLoading}
-        >
-          <Sparkles size={14} />
-          {insightsMutation.isPending ? 'Generating…' : 'Generate Insights'}
-        </button>
+        <div className="flex items-center gap-2">
+          {analyticsExplainer.button}
+          <button
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium
+                       hover:bg-primary-700 transition-colors duration-100 disabled:opacity-50 shadow-sm"
+            onClick={() => insightsMutation.mutate()}
+            disabled={insightsMutation.isPending || statsLoading}
+          >
+            <Sparkles size={14} />
+            {insightsMutation.isPending ? 'Generating…' : 'Generate Insights'}
+          </button>
+        </div>
       }
     >
+      {analyticsExplainer.dialog}
       {/* Executive Hero Strip */}
       {statsLoading ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

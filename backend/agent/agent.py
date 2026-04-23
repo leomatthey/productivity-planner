@@ -22,16 +22,32 @@ from utils.tz import user_tz, utc_now_naive, to_local_date
 
 _MAX_ITERATIONS = 20
 
+# Tools removed from the agent's surface when a panel restricts its scope.
+_PANEL_TOOL_BLOCKLIST = {
+    "projects": {"create_goal", "update_goal", "delete_goal"},
+}
+
+
+def _tools_for_context(panel_context: Optional[str]) -> List[dict]:
+    """Return ALL_TOOLS filtered to remove tools blocked for this panel context."""
+    blocked = _PANEL_TOOL_BLOCKLIST.get(panel_context or "")
+    if not blocked:
+        return ALL_TOOLS
+    return [t for t in ALL_TOOLS if t["name"] not in blocked]
+
 
 # ---------------------------------------------------------------------------
 #  System prompt — static personality + live context block
 # ---------------------------------------------------------------------------
 
-def _build_system_prompt() -> str:
+def _build_system_prompt(panel_context: Optional[str] = None) -> str:
     """
     Build the system prompt with a live context block fetched from the DB.
     Contains: today's date/day, overdue task count, today's tasks,
     next 3 calendar events, and habits due today with streaks.
+
+    If `panel_context` is set, an addendum is appended to scope the agent's
+    behaviour for in-page chat panels (e.g. "projects" restricts to tasks-only).
     """
     import json as _json
 
@@ -150,6 +166,18 @@ def _build_system_prompt() -> str:
     tz_offset_str = datetime.now(tz).strftime("%z")  # e.g. "+0200"
     tz_offset_pretty = f"UTC{tz_offset_str[:3]}:{tz_offset_str[3:]}" if tz_offset_str else "UTC"
 
+    panel_addendum = ""
+    if panel_context == "projects":
+        panel_addendum = (
+            "\n\nPANEL CONTEXT: You are inside the Projects assistant. "
+            "Focus on adding, modifying, or organising tasks within existing "
+            "projects and subprojects. You can list and inspect projects but "
+            "you CANNOT create, modify, or delete projects or subprojects "
+            "themselves — those tools are unavailable in this context. If the "
+            "user asks for project-level changes, briefly explain the limit "
+            "and suggest they use the New Project button on the Projects page.\n"
+        )
+
     return (
         f"You are a personal productivity assistant with full read/write access to the "
         f"user's tasks, goals, habits, and calendar. Today is {today_str}.\n\n"
@@ -158,6 +186,26 @@ def _build_system_prompt() -> str:
         f"to tools are in the user's local timezone. You do NOT need to convert times — "
         f"just read what you see and emit times the user would recognise. "
         f"Naive ISO strings (no offset) are accepted and interpreted as local time.\n\n"
+        "SMART CREATION: When the user asks to plan a project, generate a workout, build "
+        "a shopping list, propose a habit plan, or any 'create something substantive' "
+        "request, do NOT respond with a sparse one-liner. Use the description field of "
+        "tasks/projects (and habits' description) to hold genuinely useful structured "
+        "content.\n"
+        "- Workouts: include warm-up, main blocks (sets/reps/intensity), and cool-down. "
+        "Match the user's stated duration and intensity.\n"
+        "- Shopping lists: itemise everything the user will need; group by store section "
+        "(produce / dairy / pantry) when it helps.\n"
+        "- Project plans: ask up to 2 clarifying questions ONLY when scope or timeline is "
+        "genuinely ambiguous; otherwise propose immediately. A good plan has a parent "
+        "project (create_goal), 2-4 subprojects (create_goal with parent_id), and 5-12 "
+        "starter tasks distributed across them (create_task with project_id and "
+        "estimated_minutes set).\n"
+        "- Habit plans: 1-3 habits is usually right; pick frequency and time_of_day "
+        "deliberately ('Drink 2L water' → daily anytime; 'Sunday meal prep' → weekly "
+        "Sun evening). Use create_habit and add a short description so the user remembers "
+        "WHY each habit matters.\n"
+        "Always end with a one-paragraph summary of what landed in the planner so the "
+        "user knows exactly what was created.\n\n"
         "You can help the user:\n"
         "- Create, update, prioritise, and delete tasks and projects\n"
         "- Track goals and sub-goals with progress percentages\n"
@@ -170,7 +218,9 @@ def _build_system_prompt() -> str:
         "aggregate overviews, and Google Calendar sync. "
         "Use them proactively whenever the user asks about their data. "
         "Always fetch fresh information rather than relying on conversation history alone. "
-        "Be concise, practical, and action-oriented in your responses.\n\n"
+        "Be concise, practical, and action-oriented in your responses."
+        + panel_addendum
+        + "\n\n"
         + context_block
     )
 
@@ -401,6 +451,7 @@ def run_agent(
 def run_agent_stream(
     messages: List[dict],
     session_id: str,
+    panel_context: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """
     Run the Claude agent and yield SSE-formatted tokens for the final response.
@@ -414,9 +465,12 @@ def run_agent_stream(
     Args:
         messages: Full conversation history, last item must be the new user message.
         session_id: DB session ID.
+        panel_context: Optional in-page panel scope ("projects" filters out
+            create/update/delete-goal tools and adjusts the system prompt).
     """
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
-    system_prompt = _build_system_prompt()
+    system_prompt = _build_system_prompt(panel_context=panel_context)
+    tools = _tools_for_context(panel_context)
 
     _persist_user_message(messages, session_id)
 
@@ -431,7 +485,7 @@ def run_agent_stream(
             model="claude-sonnet-4-6",
             max_tokens=4096,
             system=system_prompt,
-            tools=ALL_TOOLS,
+            tools=tools,
             messages=working_messages,
         ) as stream:
             final_message = stream.get_final_message()

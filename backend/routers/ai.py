@@ -30,8 +30,12 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
-    message:    str
-    session_id: str
+    message:        str
+    session_id:     str
+    # Optional scoping hint from in-page chat panels. When set to "projects",
+    # the agent's create/update/delete-goal tools are filtered out (panel is
+    # restricted to task-level operations on existing projects/subprojects).
+    panel_context:  Optional[str] = None
 
 
 class MessageOut(BaseModel):
@@ -161,6 +165,7 @@ def chat(body: ChatRequest):
             for chunk in run_agent_stream(
                 messages=history,
                 session_id=body.session_id,
+                panel_context=body.panel_context,
             ):
                 yield chunk
         except Exception as exc:

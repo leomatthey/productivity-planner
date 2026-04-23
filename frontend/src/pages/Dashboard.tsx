@@ -6,6 +6,7 @@ import {
   Repeat2, ChevronRight, Clock, AlertTriangle,
 } from 'lucide-react'
 import { AppShell } from '../components/layout/AppShell'
+import { useTabExplainer } from '../components/TabExplainer'
 import { Progress } from '@/components/ui/progress'
 import { tasks, habits, calendar } from '../lib/api'
 import type { Task, CalendarEvent } from '../types'
@@ -320,8 +321,21 @@ export function Dashboard() {
 
   const isLoading = loadingTasks || loadingHabits || loadingEvents
 
+  const { dialog: explainerDialog, button: explainerButton } = useTabExplainer({
+    storageKey: 'explainer-dashboard',
+    title: 'Dashboard',
+    subtitle: 'Your daily command centre — what\'s slipping, what\'s next, and what\'s on your plate today.',
+    highlights: [
+      { icon: AlertTriangle, title: 'Overdue banner',  body: 'Items past their due date surface at the top so nothing rots quietly.' },
+      { icon: Clock,         title: 'Today\'s plan',   body: 'A clean timeline of every scheduled task block and meeting today.' },
+      { icon: ListTodo,      title: 'Quick triage',    body: 'Tap a task to mark complete, jump straight into details, or pivot to another tab.' },
+    ],
+    tip: 'Tip: open the AI Assistant on Tasks/Projects/Habits for in-context creation — the Dashboard always reflects fresh data.',
+  })
+
   return (
-    <AppShell title="">
+    <AppShell title="" action={explainerButton}>
+      {explainerDialog}
       {/* Greeting */}
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{greeting()}</h1>

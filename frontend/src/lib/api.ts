@@ -284,12 +284,19 @@ export interface ChatMessageRecord {
 }
 
 export const ai = {
-  // Returns a raw Response so the caller can consume the SSE stream
-  chatStream: (message: string, session_id: string): Promise<Response> =>
+  // Returns a raw Response so the caller can consume the SSE stream.
+  // panel_context optionally scopes the agent — e.g. "projects" filters out
+  // create/update/delete-goal tools so the in-page panel can only operate on
+  // tasks within existing projects.
+  chatStream: (
+    message: string,
+    session_id: string,
+    panel_context?: string,
+  ): Promise<Response> =>
     fetch(`${BASE}/ai/chat`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ message, session_id }),
+      body: JSON.stringify({ message, session_id, panel_context }),
     }),
 
   sessions: () =>

@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Send, Plus, ChevronLeft, ChevronRight, Bot, User } from 'lucide-react'
+import { Send, Plus, ChevronLeft, ChevronRight, Bot, User, Sparkles, History, Wand2 } from 'lucide-react'
 import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Sidebar } from '../components/layout/Sidebar'
+import { useTabExplainer } from '../components/TabExplainer'
 import { ai } from '../lib/api'
 import type { SessionRecord } from '../lib/api'
 
@@ -156,6 +157,18 @@ export function AIAssistant() {
   const bottomRef                     = useRef<HTMLDivElement>(null)
   const textareaRef                   = useRef<HTMLTextAreaElement>(null)
 
+  const aiExplainer = useTabExplainer({
+    storageKey: 'explainer-ai',
+    title: 'AI Assistant',
+    subtitle: 'A full chat with Claude, with read & write access to your entire planner.',
+    highlights: [
+      { icon: Wand2,     title: '27 tools',           body: 'The agent can read and write tasks, projects, habits, calendar events, and preferences — atomically.' },
+      { icon: History,   title: 'Session history',    body: 'Every conversation is saved on the left. Click any session to reload it.' },
+      { icon: Sparkles,  title: 'Smart creation',     body: 'Ask for "a workout", "a project plan", or "a shopping list" — the agent generates structured, ready-to-use content.' },
+    ],
+    tip: 'Tip: each in-page tab also has its own focused chat panel — same agent, scoped per context.',
+  })
+
   const { data: sessions = [] } = useQuery({
     queryKey: ['ai-sessions'],
     queryFn: ai.sessions,
@@ -269,6 +282,7 @@ export function AIAssistant() {
 
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-slate-900">
+      {aiExplainer.dialog}
       {/* Navigation sidebar — same as all other pages */}
       <Sidebar />
 
@@ -349,6 +363,7 @@ export function AIAssistant() {
                 AI Assistant
               </h1>
             </div>
+            {aiExplainer.button}
             <Button size="sm" variant="outline" onClick={startNewSession} className="h-8 text-xs">
               <Plus size={13} className="mr-1" />
               New Chat

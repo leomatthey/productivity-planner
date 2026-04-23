@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Save, Download, RefreshCw, Link2, Unlink, Database, Sparkles, AlertTriangle } from 'lucide-react'
+import { Save, Download, RefreshCw, Link2, Unlink, Database, Sparkles, AlertTriangle, Clock } from 'lucide-react'
 import { AppShell } from '../components/layout/AppShell'
+import { useTabExplainer } from '../components/TabExplainer'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
@@ -386,8 +387,21 @@ function DemoDataSection() {
 // Main page
 // ---------------------------------------------------------------------------
 export function Settings() {
+  const settingsExplainer = useTabExplainer({
+    storageKey: 'explainer-settings',
+    title: 'Settings',
+    subtitle: 'Preferences, Google Calendar, and a one-click demo dataset.',
+    highlights: [
+      { icon: Clock,    title: 'Work hours',           body: 'These power the smart scheduler — your work-day window for finding free slots.' },
+      { icon: Link2,    title: 'Google Calendar',      body: 'Connect once via OAuth and your real events are pulled in (read-only) and respected by the scheduler.' },
+      { icon: Database, title: 'Reset & Seed Demo',    body: 'Loads a rich showcase dataset — projects, subprojects, 30-day habit history, scheduled tasks. Google events are preserved.' },
+    ],
+    tip: 'Tip: connect Google first, then seed — task blocks will be placed in genuinely free slots.',
+  })
+
   return (
-    <AppShell title="Settings">
+    <AppShell title="Settings" action={settingsExplainer.button}>
+      {settingsExplainer.dialog}
       <div className="max-w-2xl space-y-6">
         <PreferencesSection />
         <Separator />
