@@ -1,20 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Save, Download, RefreshCw, Link2, Unlink, Database, Beaker } from 'lucide-react'
+import { Save, Download, RefreshCw, Link2, Unlink, Database, Sparkles, AlertTriangle } from 'lucide-react'
 import { AppShell } from '../components/layout/AppShell'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import {
+  Dialog, DialogContent, DialogDescription, DialogFooter,
+  DialogHeader, DialogTitle,
+} from '@/components/ui/dialog'
 import { preferences, calendar, analytics } from '../lib/api'
 import type { DbStats, GoogleCalendarStatus } from '../lib/api'
-
-// ---------------------------------------------------------------------------
-// Dev mode detection
-// ---------------------------------------------------------------------------
-function isDevMode(): boolean {
-  return new URLSearchParams(window.location.search).get('dev') === 'true'
-}
 
 // ---------------------------------------------------------------------------
 // Preferences form
@@ -284,38 +281,104 @@ function ExportSection() {
 }
 
 // ---------------------------------------------------------------------------
-// Dev tools section (hidden behind ?dev=true)
+// Demo Data section — reset & re-seed the database for demo/showcase
 // ---------------------------------------------------------------------------
-function DevToolsSection() {
+function DemoDataSection() {
+  const qc = useQueryClient()
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const [seeding, setSeeding] = useState(false)
 
   async function handleSeed() {
     setSeeding(true)
     try {
-      await fetch('/api/seed', { method: 'POST' })
-      toast.success('Seed data inserted')
-    } catch {
-      toast.error('Seed failed — check backend logs')
+      const res = await fetch('/api/admin/seed?reset=true', { method: 'POST' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const counts = await res.json()
+      // Refresh every view that touches the DB.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['tasks'] }),
+        qc.invalidateQueries({ queryKey: ['goals'] }),
+        qc.invalidateQueries({ queryKey: ['projects'] }),
+        qc.invalidateQueries({ queryKey: ['habits'] }),
+        qc.invalidateQueries({ queryKey: ['events'] }),
+        qc.invalidateQueries({ queryKey: ['events-scheduling'] }),
+        qc.invalidateQueries({ queryKey: ['analytics-stats'] }),
+        qc.invalidateQueries({ queryKey: ['preferences'] }),
+        qc.invalidateQueries({ queryKey: ['db-stats'] }),
+      ])
+      const parts = [
+        `${counts.tasks ?? 0} tasks`,
+        `${counts.goals ?? 0} projects`,
+        `${counts.habits ?? 0} habits`,
+        `${counts.events ?? 0} events`,
+      ]
+      toast.success(`Demo data ready — ${parts.join(' · ')}`)
+      setConfirmOpen(false)
+    } catch (err) {
+      toast.error(`Seed failed: ${err instanceof Error ? err.message : 'check backend logs'}`)
     } finally {
       setSeeding(false)
     }
   }
 
   return (
-    <div className="card p-6 border-warning">
-      <div className="flex items-center gap-2 mb-3">
-        <Beaker size={16} className="text-warning" />
-        <h3 className="text-warning">Dev Tools</h3>
-        <span className="badge bg-warning-light text-warning">?dev=true</span>
+    <>
+      <div className="card p-6">
+        <div className="flex items-center gap-2 mb-3">
+          <Sparkles size={16} className="text-primary" />
+          <h3>Demo Data</h3>
+        </div>
+        <p className="text-sm text-slate-600 mb-1">
+          Replace your local data with a rich showcase dataset —
+          projects with subprojects, historical task completions,
+          habit streaks, and calendar events.
+        </p>
+        <p className="text-xs text-slate-400 mb-4">
+          Google Calendar events and your work-hour preferences are preserved.
+          Local task blocks and meetings are scheduled around any existing events.
+        </p>
+        <Button
+          size="sm"
+          onClick={() => setConfirmOpen(true)}
+          disabled={seeding}
+          className="bg-primary text-white hover:bg-primary-700"
+        >
+          {seeding ? <RefreshCw size={13} className="mr-1 animate-spin" /> : <Database size={13} className="mr-1" />}
+          Reset &amp; Seed Demo Data
+        </Button>
       </div>
-      <p className="text-xs text-slate-500 mb-4">
-        These tools are only visible when <code className="font-mono bg-slate-100 px-1 rounded">?dev=true</code> is in the URL.
-      </p>
-      <Button size="sm" variant="outline" onClick={handleSeed} disabled={seeding} className="border-warning/40 text-warning">
-        {seeding ? <RefreshCw size={13} className="mr-1 animate-spin" /> : <Database size={13} className="mr-1" />}
-        Insert Seed Data
-      </Button>
-    </div>
+
+      <Dialog open={confirmOpen} onOpenChange={v => !seeding && setConfirmOpen(v)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertTriangle size={18} className="text-warning" />
+              Replace all local data?
+            </DialogTitle>
+            <DialogDescription>
+              This will <strong>permanently delete</strong> all local tasks, projects, habits
+              (and their completion history), and locally-created calendar events —
+              then insert a fresh demo dataset.
+              <br /><br />
+              <strong>Preserved:</strong> Google Calendar events, work-hour preferences.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmOpen(false)} disabled={seeding}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSeed}
+              disabled={seeding}
+              className="bg-danger text-white hover:bg-danger-dark"
+            >
+              {seeding ? <RefreshCw size={13} className="mr-1 animate-spin" /> : null}
+              Yes — replace and seed
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }
 
@@ -323,8 +386,6 @@ function DevToolsSection() {
 // Main page
 // ---------------------------------------------------------------------------
 export function Settings() {
-  const devMode = isDevMode()
-
   return (
     <AppShell title="Settings">
       <div className="max-w-2xl space-y-6">
@@ -332,15 +393,11 @@ export function Settings() {
         <Separator />
         <GoogleCalendarSection />
         <Separator />
+        <DemoDataSection />
+        <Separator />
         <ExportSection />
         <Separator />
         <DbStatsSection />
-        {devMode && (
-          <>
-            <Separator />
-            <DevToolsSection />
-          </>
-        )}
       </div>
     </AppShell>
   )

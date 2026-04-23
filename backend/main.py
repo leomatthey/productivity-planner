@@ -17,8 +17,8 @@ from sqlalchemy import text
 load_dotenv()
 
 from db.schema import db_init
-from routers import tasks, goals, habits, calendar, ai, analytics, preferences
-from utils.seed import seed_database
+from routers import tasks, goals, habits, calendar, ai, analytics, preferences, admin
+from utils.seed import seed_demo_data
 
 
 @asynccontextmanager
@@ -51,7 +51,7 @@ async def lifespan(app: FastAPI):
         ))
         conn.commit()
     # Seed demo data on first run (no-op if data already exists)
-    seed_database()
+    seed_demo_data(reset=False)
     # Warn if AI features will be unavailable
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key or api_key == "your-anthropic-api-key-here":
@@ -85,6 +85,7 @@ app.include_router(calendar.router,    prefix="/api/calendar",   tags=["calendar
 app.include_router(ai.router,          prefix="/api/ai",         tags=["ai"])
 app.include_router(analytics.router,   prefix="/api/analytics",  tags=["analytics"])
 app.include_router(preferences.router, prefix="/api/preferences",tags=["preferences"])
+app.include_router(admin.router,       prefix="/api/admin",      tags=["admin"])
 
 
 @app.get("/api/health")
