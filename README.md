@@ -1,235 +1,206 @@
-# Productivity Planner
+# Stride — Productivity AI
 
-A personal AI-powered productivity planner built with FastAPI, React, and Anthropic Claude. It combines task management, goal tracking, habit streaks, and a calendar with an AI assistant that can read and modify your data through natural language.
+A calm, well-designed personal planner that lives on your laptop, paired with a Claude-powered assistant that has full read/write access to your tasks, projects, habits, and calendar. Built as the **Assignment 1 submission for *Prototyping with Data & AI* (ESADE MiBA, Spring 2026)**.
 
-This is a **work-in-progress prototype** submitted as Assignment 1 for the Prototyping with Data & AI course (ESADE MiBA, Term 2, 2026).
-
----
-
-## What This Is
-
-The planner solves a personal pain point: fragmented productivity tools. Instead of switching between a task app, a calendar, and a habit tracker, everything lives in one place — with an AI assistant that understands your full context and can take action on your behalf.
-
-The two LLM features required by the assignment are:
-1. **AI Assistant** — a Claude-powered chat agent with tool-use: it can create tasks, reschedule events, check your habits, and query your goals in real time
-2. **Analytics Insights** — Claude analyzes your aggregated productivity data (task completion rates, habit streaks, busiest calendar hours) and returns structured JSON highlights, patterns, and recommendations that are displayed alongside the charts
+> **One-line setup:** clone, paste an Anthropic key into `backend/.env`, run `docker-compose up --build`. First boot auto-seeds a rich showcase dataset — the app is populated and ready to demo on `http://localhost:3000`.
 
 ---
 
-## Current Features
+## Why this is local-only
 
-| Feature | Status | Notes |
-|---|---|---|
-| Task management | Working | CRUD, priorities (low/medium/high/urgent), status flow, soft deletes |
-| Projects / Goals | Working | Hierarchical goals, auto-progress from linked tasks, color labels |
-| Calendar | Working | Week/month views, local event creation, event types |
-| Habits | Working | Streak tracking, daily/weekly/weekday frequencies, completion marking |
-| AI Assistant | Working* | Claude claude-sonnet-4-6, tool-use loop, streaming SSE, conversation history |
-| Analytics | Working* | Recharts visualisations + LLM-generated insights panel |
-| Dark mode | Working | Toggle in top bar |
-| Google Calendar sync | Partial | OAuth flow implemented; requires personal Google Cloud credentials (see below) |
+Stride is intentionally **not deployed online**. It's a single-user personal-productivity app: there is no auth layer, no multi-tenant isolation, no per-user data partition. Deploying it would require building all of that — multi-user auth, per-user OAuth callback URLs, data isolation, hosted DB — for zero user benefit. Your data (chats, tasks, calendar links, OAuth tokens) belongs on your own machine.
 
-\* Requires `ANTHROPIC_API_KEY` in `backend/.env`
+The Docker setup in this repo *is* the production setup — for yourself. The professor can clone the repo, run two commands, and have a fully functional copy in five minutes.
 
 ---
 
-## Known Limitations / Work in Progress
+## Prerequisites
 
-- **Projects page**: being refactored — task linking and sub-goal views are partially complete
-- **Tasks page**: filter/sort UI being improved; some edge cases in date filtering
-- **Calendar**: minor timezone edge cases when displaying events near midnight
-- **Google Calendar**: fully functional OAuth + sync flow, but **requires the reviewer to set up their own Google Cloud credentials** — it will not work out of the box (see Google Calendar section below)
-- **Mobile layout**: not optimised; designed for desktop (1280px+)
-- **No authentication**: single-user local app, no login system
+- **[Docker Desktop](https://www.docker.com/products/docker-desktop/)** (only hard dependency).
+- **An Anthropic API key.** Free trial credit covers a thorough demo; expect roughly $1–2 of usage if you exercise the AI heavily. Get one at [console.anthropic.com](https://console.anthropic.com).
+- **Optional:** a Google Cloud project for Google Calendar sync (see below).
 
 ---
 
-## Tech Stack
+## Run it in 5 minutes
 
-| Layer | Technology |
+```bash
+git clone https://github.com/leomatthey/productivity-planner.git
+cd productivity-planner
+
+cp backend/.env.example backend/.env
+# open backend/.env and paste your Anthropic key into ANTHROPIC_API_KEY=
+
+docker-compose up --build
+```
+
+When both containers report healthy, open **http://localhost:3000**.
+
+The first visit auto-redirects to `/welcome` — a landing page with a quick tour and a "Get started" link. Demo data is seeded automatically on the first backend boot, so the app is **populated and ready to explore** without any extra clicks.
+
+To stop:
+
+```bash
+docker-compose down          # keeps your data
+docker-compose down -v       # also wipes volumes (use carefully)
+```
+
+---
+
+## Anthropic API key
+
+The `ANTHROPIC_API_KEY` in `backend/.env` powers two features:
+
+1. **AI Assistant** — every message in the dedicated AI tab and every in-page assistant panel.
+2. **Analytics → Generate Insights** — one-shot LLM call that returns a structured JSON insights object.
+
+The model used is `claude-sonnet-4-6`. If the key is missing or invalid, the rest of the app still works — just the AI features are disabled with a clear message.
+
+---
+
+## Google Calendar (optional)
+
+You can ignore this entirely — Stride is fully usable without it. Without Google Calendar:
+
+- The Calendar page still works with locally-created events.
+- The smart scheduler still finds free slots in your local events.
+- All AI features still work.
+
+If you *do* want to sync your real calendar:
+
+1. Open the [Google Cloud Console](https://console.cloud.google.com/).
+2. Create a new project (or pick an existing one).
+3. Enable the **Google Calendar API** (APIs & Services → Library).
+4. Create an OAuth client ID:
+   - APIs & Services → Credentials → **Create credentials** → OAuth client ID.
+   - Application type: **Web application**.
+   - Authorised redirect URI: `http://localhost:3000/settings` (or whatever URL Stride is running at).
+5. Download the client-secrets JSON.
+6. Save it as `backend/data/google_client_secrets.json` (create the `data/` directory if needed).
+7. Restart the backend: `docker-compose restart backend`.
+8. In the running app, go to **Settings → Connect Google Calendar** and complete the OAuth flow.
+
+Your synced events appear on the Calendar page (read-only, neutral colour) and are respected by the smart scheduler — task blocks won't be placed on top of them.
+
+---
+
+## First-run tour (suggested demo path)
+
+1. **/welcome** — auto-redirected on first visit. Read the hero, click *"Open the app"*.
+2. **Dashboard** — today's plan, overdue banner, habits due today.
+3. **Projects** — expand the Master's project to see subprojects + rolled-up status. Try the inline AI panel: *"Add 3 next tasks for the PDAI subproject."*
+4. **Tasks** — open the inline AI panel, click the workout chip → *"Generate a workout — 60 minutes light cardio"* → watch a richly-described task appear.
+5. **Calendar** — see scheduled task blocks alongside seeded meetings; drag to reschedule.
+6. **Habits** — 4 habits with 30 days of completion history; one ("Meditate") is deliberately slipping for the analytics insight to catch.
+7. **Analytics** → click **Generate Insights**. The AI returns a concrete executive summary that names a specific project + numbers, and chart cards highlighted by the LLM glow.
+8. **Settings** → **Reset & Seed Demo Data** if you want a clean slate at any point.
+
+---
+
+## Features at a glance
+
+| Tab | What it does |
 |---|---|
-| Frontend | React 18 + TypeScript + Vite |
-| Styling | TailwindCSS + shadcn/ui |
-| Charts | Recharts |
-| Icons | Lucide React |
-| Backend | FastAPI + Uvicorn (Python 3.9+) |
-| Database | SQLite via SQLAlchemy 2.x |
-| AI | Anthropic Claude (`claude-sonnet-4-6`) |
-| Google Calendar | google-api-python-client |
+| **Dashboard** | Greeting + overdue banner + Today's Plan timeline + habits due. |
+| **Tasks** | Quick-add, list & kanban views, filter by project / priority / status, inline AI panel. |
+| **Projects** | Top-level → subprojects → tasks. Auto-progress, RAG status. Inline AI restricted to task-level changes. |
+| **Calendar** | Month / Week / Day views via react-big-calendar, drag-to-reschedule, Google Calendar sync. |
+| **Habits** | Daily / weekday / weekly / custom frequency, streak tracking, 30-day grid, inline AI for habit plans. |
+| **AI Assistant** | Full Claude chat, multi-session history, 27 tools, SSE streaming. |
+| **Analytics** | Executive hero strip, Project Health Board (RAG), Time Allocation donut, Habit-rate bars, Calendar Load heatmap, AI Insights. |
+| **Settings** | Work hours, Google Calendar OAuth, Reset & Seed Demo Data. |
+
+Every tab has a one-time explainer modal on first session visit — click the `?` icon in the top bar to reopen it.
 
 ---
 
-## Quick Start
+## AI integration (assignment compliance)
 
-### Prerequisites
+This submission ships **two distinct LLM-powered features**, as required:
 
-- Python 3.9+
-- Node.js 18+
-- An Anthropic API key — get one free at [console.anthropic.com](https://console.anthropic.com)
+### Feature 1 — AI Assistant (multi-call tool-use loop)
 
-### 1. Backend
+- 27 tools registered with the agent: full CRUD for tasks, projects, habits, calendar events; atomic `schedule_task` / `unschedule_task` / `move_event`; `apply_schedule` for batch scheduling; preference get/set; Google Calendar sync.
+- Streaming SSE responses; non-streaming tool-use iterations precede the final streamed text.
+- Multi-session history with sidebar navigation.
+- Three **per-tab inline panels** (Projects, Tasks, Habits) reuse the same agent. The Projects panel is **scope-restricted via backend tool filtering** — `create_goal / update_goal / delete_goal` are stripped from the tool list when the chat originates from that panel, with a positive-framing system-prompt addendum explaining the restriction.
+- Timezone-correct: a single conversion boundary (`backend/utils/tz.py`) ensures the agent reads and writes user-local times despite the DB storing naive UTC.
+- "Smart Creation" guidance in the system prompt steers the model to fill descriptions with structured content (workouts with warm-up/main/cool-down; project plans with parent + 2–4 subprojects + 5–12 tasks; habit plans with deliberate frequency + time-of-day).
+
+### Feature 2 — Analytics Insights (data → LLM structured JSON → chart visual state)
+
+- `crud.get_analytics_stats` aggregates the live DB into a payload covering tasks (completion-by-week), project health (RAG status, velocity, projected finish), per-project time allocation this week vs last, habit completion rates (7- and 30-day), calendar load.
+- `POST /api/analytics/insights` sends that payload to Claude with a strict JSON schema requiring a `headline`, 3–5 `highlights` (each with a `metric` enum), `patterns`, `recommendations`, and a `focus_suggestion`.
+- The frontend maps each `metric` enum value to a chart card identifier (`METRIC_TO_CHART`) and adds a primary ring around any chart the LLM flagged. **The LLM's structured output directly drives visual chart state** — the assignment's "non-straightforward LLM feature" requirement.
+- The system prompt requires specificity: highlights and patterns must reference real project names, habit names, and numbers from the data — never generic phrasing.
+
+---
+
+## Data & privacy
+
+- The SQLite database lives at `backend/data/planner.db` on your filesystem (bind-mounted into the container at `/app/data`).
+- Chat history is stored in the same DB (`ai_conversation_history` table).
+- Google OAuth tokens (if you connect Google Calendar) live in `backend/data/google_token.json` — never sent anywhere.
+- **Nothing leaves your machine** except the chat content sent to Anthropic when you message the AI.
+
+To wipe everything:
 
 ```bash
-cd backend
-
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Set up environment
-cp .env.example .env
-# Open .env and replace 'your-anthropic-api-key-here' with your actual key
-
-# Start the API server
-python3 -m uvicorn main:app --reload --port 8000
-# (or just: uvicorn main:app --reload --port 8000 if uvicorn is in your PATH)
+docker-compose down
+rm -rf backend/data
 ```
 
-On first startup, the server automatically creates the SQLite database and seeds it with realistic demo data (tasks, goals, habits, calendar events). You will see a confirmation in the terminal.
-
-### 2. Frontend
-
-```bash
-cd frontend
-
-# Install Node dependencies
-npm install
-
-# Start the dev server
-npm run dev
-# Opens at http://localhost:5173
-```
-
-Both servers must be running simultaneously. Vite proxies all `/api/*` requests to the backend on port 8000.
+The next `docker-compose up` will re-create an empty DB and re-seed demo data on first boot.
 
 ---
 
-## Demo Data
+## Tech stack
 
-On first run, the backend auto-seeds the database with:
-
-- **6 goals** — "Launch Personal Website" (with 2 sub-goals), "Get Fit for Summer", "Learn Conversational Spanish", "Read 12 Books This Year"
-- **10 tasks** — various priorities, statuses, and tags; 4 linked to the website goal
-- **5 habits** — Morning Meditation, Exercise, Vitamins, Read 30 Min, Weekly Review
-- **6 calendar events** — standup meetings, a gym session, a doctor appointment
-
-To force a fresh re-seed (clears all data):
-
-```bash
-cd backend
-python -c "from utils.seed import seed_database; seed_database(force=True)"
-```
+- **Backend** — FastAPI (Python 3.12, packaged with [`uv`](https://github.com/astral-sh/uv)), SQLAlchemy 2 over SQLite, Anthropic Python SDK (`claude-sonnet-4-6`), Google API Python Client.
+- **Frontend** — React 18 + TypeScript + Vite + nginx (production build), TailwindCSS + [shadcn/ui](https://ui.shadcn.com/), TanStack Query, react-big-calendar, recharts.
+- **Container** — Docker Compose with two services (backend on `:8000`, frontend on `:3000`); single bind-mount for the SQLite DB.
 
 ---
 
-## Feature Tour — What to Try
-
-The goal is to see how the AI assistant interacts with your real data:
-
-1. **Tasks page** — create a task, change its priority, mark it done. Notice how task completion auto-updates linked goal progress.
-
-2. **AI Assistant** — try these prompts:
-   - *"What are my highest-priority tasks this week?"*
-   - *"Schedule my urgent tasks for tomorrow morning"*
-   - *"Create a task to review the analytics dashboard by Friday"*
-   - *"What habits have I been skipping?"*
-
-3. **Analytics page** — click **Generate Insights** to call Claude with your aggregated data. Watch the highlights panel populate with personalised observations and recommendations.
-
-4. **Calendar** — view your seeded events, create a new one. Switch between week and month views.
-
-5. **Habits** — mark today's habits complete and watch streaks update in real time.
-
-6. **Projects** — see the goal hierarchy (parent goal → sub-goals → linked tasks) and progress bars.
-
----
-
-## Architecture
-
-```
-┌─────────────────────────────────┐
-│  React 18 + TypeScript (Vite)   │
-│  Port 5173 (dev)                │
-│  TailwindCSS + shadcn/ui        │
-└──────────────┬──────────────────┘
-               │  REST + SSE  (/api/*)
-┌──────────────▼──────────────────┐
-│  FastAPI + Uvicorn              │
-│  Port 8000                      │
-│                                 │
-│  routers/   tasks, goals,       │
-│             habits, calendar,   │
-│             ai (SSE), analytics │
-│  agent/     tool-use loop       │
-│  db/        schema + crud       │
-└──────────────┬──────────────────┘
-               │  SQLAlchemy
-┌──────────────▼──────────────────┐
-│  SQLite  (backend/data/)        │
-│  Auto-created on first run      │
-└─────────────────────────────────┘
-               │  Anthropic API
-┌──────────────▼──────────────────┐
-│  Claude claude-sonnet-4-6           │
-│  Tool-use: read/write tasks,    │
-│  events, habits, goals          │
-└─────────────────────────────────┘
-```
-
----
-
-## Google Calendar (Optional)
-
-The Google Calendar integration is fully implemented (OAuth 2.0 flow, bidirectional sync, read-only import of Google events). However, it **cannot work on another machine** without its own credentials.
-
-To set it up on your machine:
-
-1. Create a Google Cloud project with the Calendar API enabled
-2. Create OAuth 2.0 credentials (Web application type)
-3. Add `http://localhost:8000` as an authorised redirect URI
-4. Download the credentials JSON and save it as `backend/data/google_client_secrets.json`
-5. In the app, go to **Settings → Google Calendar** and complete the OAuth flow
-
-All other features work without Google Calendar.
-
----
-
-## Project Structure
+## Project layout
 
 ```
 productivity-planner/
-├── backend/               FastAPI + Python
-│   ├── main.py            App entry point, lifespan, CORS
-│   ├── requirements.txt   Python dependencies
-│   ├── .env.example       Environment template (copy to .env)
-│   ├── routers/           One router per domain
-│   ├── agent/             Claude tool-use agent
-│   ├── db/                SQLAlchemy schema + CRUD layer
-│   ├── integrations/      Google Calendar client
-│   └── utils/             seed.py, date_utils.py
-├── frontend/              React + TypeScript + Vite
+├── backend/
+│   ├── agent/         # Claude tool-use loop and tool registry
+│   ├── routers/       # FastAPI endpoints (one file per domain)
+│   ├── db/            # SQLAlchemy schema + CRUD layer
+│   ├── integrations/  # Google Calendar OAuth + sync
+│   ├── utils/         # Timezone, scheduling engine, seed data
+│   ├── data/          # (gitignored) SQLite DB + Google tokens
+│   ├── main.py        # FastAPI app entry point
+│   └── .env.example   # copy to .env and add your key
+├── frontend/
 │   ├── src/
-│   │   ├── pages/         8 page components
-│   │   ├── components/    Shared UI + layout (AppShell, Sidebar)
-│   │   ├── lib/           api.ts, theme.ts, scheduling.ts
-│   │   └── types/         TypeScript types mirroring DB schema
-│   └── package.json
-├── legacy/                v1 Streamlit prototype (reference only)
-├── CLAUDE.md              Full development briefing (sprint-by-sprint)
-├── FIXES_V3.md            Sprint 4+ change log
-└── README.md              This file
+│   │   ├── pages/     # One file per tab (Welcome, Dashboard, Tasks, …)
+│   │   ├── components/# Reusable UI: layout, ai/AIChatPanel, brand/Logo, …
+│   │   └── lib/       # Typed API client, theme, colour helpers
+│   └── …
+├── legacy/            # Historical Streamlit prototype — ignore for grading
+├── docker-compose.yml
+└── README.md          # you are here
 ```
 
 ---
 
-## Development Notes
+## Troubleshooting
 
-The development process followed a sprint structure documented in `CLAUDE.md`:
+| Symptom | Fix |
+|---|---|
+| **`AI error: Connection error`** in the chat | `ANTHROPIC_API_KEY` missing or invalid in `backend/.env`. Edit, then `docker-compose restart backend`. |
+| **Port 3000 or 8000 already in use** | Free the port (`lsof -i :3000` then kill) or remap in `docker-compose.yml`. |
+| **App times look 1–2h off** | `TZ` in `backend/.env` doesn't match your local timezone. Set it (e.g. `TZ=America/New_York`) and restart the backend. |
+| **DB feels stale or you want a clean slate** | Settings → **Reset & Seed Demo Data** (preserves Google events) — or `docker-compose down && rm -rf backend/data && docker-compose up`. |
+| **Google "Connect" silently fails** | `backend/data/google_client_secrets.json` is missing, or the redirect URI registered in Google Cloud Console doesn't include `http://localhost:3000/settings`. |
+| **Frontend builds but page is blank** | Hard reload (Cmd+Shift+R) to bust Vite's cached chunks; check the browser console. |
 
-- **Sprint 0** — Vite + React scaffold, full design system (Tailwind + shadcn/ui)
-- **Sprint 1** — FastAPI backend, 7 routers, bug fixes from v1
-- **Sprint 2** — Agent upgrades: dynamic system prompt, streaming SSE, tool additions
-- **Sprint 3** — All 8 React pages fully implemented
-- **Sprint 4** — Analytics page (LLM insights, second LLM feature)
-- **Sprint 4+** (current) — Projects page, task/calendar improvements, fixes
+---
 
-The `legacy/` folder contains the original Streamlit v1 prototype from which the backend logic was preserved.
+## Acknowledgements
+
+PDAI submission · ESADE MiBA · Spring 2026 · paired with Claude as a coding collaborator throughout.
