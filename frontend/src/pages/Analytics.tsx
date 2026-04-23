@@ -1,5 +1,5 @@
 /**
- * Analytics.tsx — Sprint 4
+ * Analytics.tsx — Sprint 4 (executive-dashboard redesign)
  *
  * Assignment compliance:
  *   Feature 2 (analytics.py + Analytics.tsx):
@@ -13,7 +13,7 @@
  *   flagged that metric. LLM output directly drives visual chart state.
  */
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import {
   AreaChart, Area,
@@ -21,26 +21,44 @@ import {
   PieChart, Pie, Cell,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts'
-import { Bot, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react'
+import {
+  Bot, TrendingUp, TrendingDown, Minus, Sparkles,
+  CheckCircle2, Clock, Target, Activity, AlertTriangle,
+  ChevronRight, ChevronDown,
+} from 'lucide-react'
 
 import { AppShell } from '../components/layout/AppShell'
 import { analytics } from '../lib/api'
 import type {
   AnalyticsStats, AnalyticsInsights, InsightHighlight,
   InsightPattern, InsightRecommendation, InsightMetricKey,
+  AnalyticsProject, ProjectHealthStatus,
 } from '../lib/api'
 import { chartPalette, colors } from '../lib/theme'
+import { getSubProjectShade } from '../lib/colors'
 
 // ---------------------------------------------------------------------------
 // Metric key → chart identifier mapping (drives visual highlighting)
 // ---------------------------------------------------------------------------
 const METRIC_TO_CHART: Record<InsightMetricKey, string> = {
-  task_completion_rate: 'tasks-trend',
-  tasks_this_week:      'tasks-trend',
-  overdue_tasks:        'priority-breakdown',
-  habit_completion_rate:'habits-bar',
-  top_habit_streak:     'habits-bar',
-  goal_progress:        'goals-pie',
+  task_completion_rate:  'tasks-trend',
+  tasks_this_week:       'tasks-trend',
+  overdue_tasks:         'project-health',
+  habit_completion_rate: 'habits-bar',
+  top_habit_streak:      'habits-bar',
+  goal_progress:         'project-health',
+  project_health:        'project-health',
+  time_allocation:       'time-allocation',
+}
+
+// ---------------------------------------------------------------------------
+// Project status visual mapping (RAG)
+// ---------------------------------------------------------------------------
+const STATUS_META: Record<ProjectHealthStatus, { label: string; bg: string; text: string; dot: string }> = {
+  on_track:    { label: 'On Track',    bg: 'bg-success-light', text: 'text-success',     dot: 'bg-success'    },
+  at_risk:     { label: 'At Risk',     bg: 'bg-warning-light', text: 'text-warning',     dot: 'bg-warning'    },
+  off_track:   { label: 'Off Track',   bg: 'bg-danger-light',  text: 'text-danger',      dot: 'bg-danger'     },
+  no_deadline: { label: 'No Deadline', bg: 'bg-slate-100',     text: 'text-slate-500',   dot: 'bg-slate-400'  },
 }
 
 // ---------------------------------------------------------------------------
@@ -61,6 +79,16 @@ const EMPTY_STATS: AnalyticsStats = {
     avg_progress_pct: 0, progress_distribution: {},
   },
   calendar: { total_events: 0, by_type: {}, busiest_days: [], busiest_hours: [] },
+  projects: [],
+  time_allocation_week: {
+    by_project: [],
+    total_minutes: 0,
+    total_hours: 0,
+    last_week_total_minutes: 0,
+    last_week_total_hours: 0,
+    week_start: '',
+    week_end: '',
+  },
 }
 
 // ---------------------------------------------------------------------------
@@ -100,7 +128,370 @@ function ChartCard({ title, subtitle, highlighted, children }: ChartCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Task completion trend — AreaChart (last 8 weeks)
+// Executive Hero Strip — 4 large metric cards
+// ---------------------------------------------------------------------------
+type HeroAccent = 'success' | 'warning' | 'danger' | 'primary' | 'slate'
+
+interface HeroMetricProps {
+  icon: React.ReactNode
+  label: string
+  value: string | number
+  delta?: number
+  deltaUnit?: string
+  accent?: HeroAccent
+}
+
+const HERO_VALUE_CLASS: Record<HeroAccent, string> = {
+  success: 'text-success',
+  warning: 'text-warning',
+  danger:  'text-danger',
+  primary: 'text-primary',
+  slate:   'text-slate-900',
+}
+
+const HERO_ICON_CLASS: Record<HeroAccent, string> = {
+  success: 'bg-success-light text-success',
+  warning: 'bg-warning-light text-warning',
+  danger:  'bg-danger-light  text-danger',
+  primary: 'bg-primary-50    text-primary',
+  slate:   'bg-slate-100     text-slate-500',
+}
+
+function HeroMetric({ icon, label, value, delta, deltaUnit, accent = 'slate' }: HeroMetricProps) {
+  const deltaLabel = delta === undefined ? null : (
+    <span className={`text-xs font-semibold ml-2 whitespace-nowrap ${
+      delta > 0 ? 'text-success' : delta < 0 ? 'text-danger' : 'text-slate-400'
+    }`}>
+      {delta > 0 ? '↑' : delta < 0 ? '↓' : '→'} {Math.abs(delta)}{deltaUnit ? ` ${deltaUnit}` : ''}
+    </span>
+  )
+
+  return (
+    <div className="card p-5 flex items-start gap-4">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${HERO_ICON_CLASS[accent]}`}>
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="metric-label">{label}</p>
+        <div className="flex items-baseline mt-1">
+          <span className={`text-3xl font-bold tracking-tight ${HERO_VALUE_CLASS[accent]}`}>{value}</span>
+          {deltaLabel}
+        </div>
+        {delta === undefined && deltaUnit && (
+          <p className="text-xs text-slate-400 mt-0.5">{deltaUnit}</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function ExecutiveHero({ stats }: { stats: AnalyticsStats }) {
+  const weeks = stats.tasks.completion_by_week
+  const thisWeek = weeks.length > 0 ? weeks[weeks.length - 1] : null
+  const lastWeek = weeks.length > 1 ? weeks[weeks.length - 2] : null
+  const doneThisWeek = thisWeek?.completed ?? 0
+  const doneLastWeek = lastWeek?.completed ?? 0
+  const doneDelta = doneThisWeek - doneLastWeek
+
+  const hoursThisWeek = stats.time_allocation_week.total_hours
+  const hoursLastWeek = stats.time_allocation_week.last_week_total_hours
+  const hoursDelta = Math.round((hoursThisWeek - hoursLastWeek) * 10) / 10
+
+  const projects = stats.projects
+  const onTrackCount = projects.filter(p => p.status === 'on_track').length
+  const atRiskCount  = projects.filter(p => p.status === 'at_risk' || p.status === 'off_track').length
+
+  const habits = stats.habits.habits
+  const consistentCount = habits.filter(h => (h.completion_rate_7d ?? 0) >= 80).length
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <HeroMetric
+        icon={<CheckCircle2 size={20} />}
+        label="Done this week"
+        value={doneThisWeek}
+        delta={doneDelta === 0 ? undefined : doneDelta}
+        deltaUnit="vs last wk"
+        accent="success"
+      />
+      <HeroMetric
+        icon={<Clock size={20} />}
+        label="Hours scheduled"
+        value={`${hoursThisWeek.toFixed(1)}h`}
+        delta={hoursDelta === 0 ? undefined : hoursDelta}
+        deltaUnit="vs last wk"
+        accent="primary"
+      />
+      <HeroMetric
+        icon={atRiskCount > 0 ? <AlertTriangle size={20} /> : <Target size={20} />}
+        label="Projects on track"
+        value={projects.length === 0 ? '—' : `${onTrackCount}/${projects.length}`}
+        delta={atRiskCount > 0 ? -atRiskCount : undefined}
+        deltaUnit={atRiskCount > 0 ? 'need attention' : undefined}
+        accent={atRiskCount > 0 ? 'warning' : 'success'}
+      />
+      <HeroMetric
+        icon={<Activity size={20} />}
+        label="Habit consistency"
+        value={habits.length === 0 ? '—' : `${consistentCount}/${habits.length}`}
+        deltaUnit={habits.length > 0 ? '≥ 80% in last 7 days' : undefined}
+        accent={consistentCount === habits.length && habits.length > 0 ? 'success' : 'slate'}
+      />
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Project Health Board — top-level rows with expandable subprojects
+// ---------------------------------------------------------------------------
+function DeadlineCell({ project }: { project: AnalyticsProject }) {
+  if (!project.target_date) return <span className="text-xs text-slate-300">—</span>
+  const late = project.days_to_target !== null && project.days_to_target < 0
+  return (
+    <>
+      <div className="text-xs text-slate-700">
+        {new Date(project.target_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+      </div>
+      <div className={`text-[11px] ${late ? 'text-danger font-medium' : 'text-slate-400'}`}>
+        {project.days_to_target! < 0
+          ? `${Math.abs(project.days_to_target!)}d late`
+          : project.days_to_target === 0
+            ? 'today'
+            : `${project.days_to_target}d left`}
+      </div>
+    </>
+  )
+}
+
+interface ProjectRowProps {
+  project: AnalyticsProject
+  /** Used to derive a lighter shade for sub-project rows. */
+  derivedColor?: string
+  /** Render as nested sub-row (indented, lighter). */
+  nested?: boolean
+  /** Expand state — undefined when not expandable. */
+  expanded?: boolean
+  onToggle?: () => void
+}
+
+function ProjectRow({ project, derivedColor, nested = false, expanded, onToggle }: ProjectRowProps) {
+  const meta = STATUS_META[project.status]
+  const color = derivedColor ?? project.color ?? '#94A3B8'
+  const expandable = onToggle !== undefined
+  const hasSubs = project.subprojects.length > 0
+
+  // For parent rows that have subprojects: show "X/Y total" + small "(N direct)" if applicable.
+  const taskLabel = (() => {
+    if (hasSubs && project.direct_task_total > 0) {
+      return (
+        <span className="text-[11px] text-slate-400 shrink-0 font-mono">
+          {project.task_done}/{project.task_total}
+          <span className="text-slate-300 ml-1">({project.direct_task_done}/{project.direct_task_total} direct)</span>
+        </span>
+      )
+    }
+    return (
+      <span className="text-[11px] text-slate-400 shrink-0 font-mono">
+        {project.task_done}/{project.task_total}
+      </span>
+    )
+  })()
+
+  return (
+    <div
+      onClick={expandable ? onToggle : undefined}
+      className={[
+        'grid grid-cols-12 gap-3 items-center px-3 py-3 rounded-md transition-colors',
+        nested ? 'pl-10 bg-slate-50/40' : '',
+        expandable ? 'cursor-pointer hover:bg-slate-50' : '',
+      ].join(' ')}
+    >
+      {/* Project name (with optional chevron) */}
+      <div className="col-span-4 flex items-center gap-2 min-w-0">
+        {expandable ? (
+          expanded
+            ? <ChevronDown size={14} className="text-slate-400 shrink-0" />
+            : <ChevronRight size={14} className="text-slate-400 shrink-0" />
+        ) : (
+          <span className="w-3.5 shrink-0" />
+        )}
+        <span
+          className={`rounded-full shrink-0 ${nested ? 'w-2 h-2' : 'w-2.5 h-2.5'}`}
+          style={{ backgroundColor: color }}
+        />
+        <span className={`truncate ${nested ? 'text-xs text-slate-700' : 'text-sm font-medium text-slate-800'}`}>
+          {project.title}
+        </span>
+        {taskLabel}
+      </div>
+
+      {/* Progress */}
+      <div className="col-span-3">
+        <div className={`relative rounded-full bg-slate-100 overflow-hidden ${nested ? 'h-1.5' : 'h-2'}`}>
+          <div
+            className="absolute left-0 top-0 h-full rounded-full transition-all"
+            style={{
+              width: `${Math.max(project.progress_pct, project.progress_pct === 0 ? 0 : 4)}%`,
+              backgroundColor: color,
+            }}
+          />
+        </div>
+        <span className="text-[11px] text-slate-500 mt-1 inline-block">{project.progress_pct}%</span>
+      </div>
+
+      {/* Deadline */}
+      <div className="col-span-2 text-right">
+        <DeadlineCell project={project} />
+      </div>
+
+      {/* Velocity */}
+      <div className="col-span-1 text-right">
+        <div className="text-xs font-mono text-slate-600">{project.velocity_per_week}</div>
+        <div className="text-[10px] text-slate-400">tasks/wk</div>
+      </div>
+
+      {/* Status pill */}
+      <div className="col-span-2 text-right">
+        <span className={`badge ${meta.bg} ${meta.text} text-xs px-2 py-1 inline-flex items-center`}>
+          <span className={`w-1.5 h-1.5 rounded-full ${meta.dot} mr-1.5`} />
+          {meta.label}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function DirectTasksRow({ project }: { project: AnalyticsProject }) {
+  const directRemaining = project.direct_task_total - project.direct_task_done
+  const directPct = project.direct_task_total > 0
+    ? Math.round((project.direct_task_done / project.direct_task_total) * 100)
+    : 0
+  const color = project.color ?? '#94A3B8'
+
+  return (
+    <div className="grid grid-cols-12 gap-3 items-center px-3 py-2 pl-10 rounded-md bg-slate-50/40">
+      <div className="col-span-4 flex items-center gap-2 min-w-0">
+        <span className="w-3.5 shrink-0" />
+        <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-slate-300" />
+        <span className="text-xs italic text-slate-500">Direct work</span>
+        <span className="text-[11px] text-slate-400 font-mono">
+          {project.direct_task_done}/{project.direct_task_total}
+        </span>
+      </div>
+      <div className="col-span-3">
+        <div className="relative h-1.5 rounded-full bg-slate-100 overflow-hidden">
+          <div
+            className="absolute left-0 top-0 h-full rounded-full"
+            style={{ width: `${Math.max(directPct, directPct === 0 ? 0 : 4)}%`, backgroundColor: color }}
+          />
+        </div>
+        <span className="text-[11px] text-slate-500 mt-1 inline-block">{directPct}%</span>
+      </div>
+      <div className="col-span-2 text-right text-xs text-slate-300">—</div>
+      <div className="col-span-1 text-right text-[11px] text-slate-400">{directRemaining} left</div>
+      <div className="col-span-2 text-right text-[11px] text-slate-400">tasks at parent level</div>
+    </div>
+  )
+}
+
+function ProjectHealthBoard({ stats, highlighted }: { stats: AnalyticsStats; highlighted: boolean }) {
+  const projects = stats.projects
+  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+
+  // Auto-expand any project that has subprojects when the project list first arrives.
+  const projectIdKey = projects.map(p => p.id).join(',')
+  useEffect(() => {
+    setExpandedIds(prev => {
+      if (prev.size > 0) return prev
+      const next = new Set<number>()
+      projects.forEach(p => {
+        if (p.subprojects.length > 0) next.add(p.id)
+      })
+      return next
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectIdKey])
+
+  const toggle = (id: number) => {
+    setExpandedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <div
+      className={[
+        'card p-6 transition-all duration-300 mb-6',
+        highlighted ? 'ring-2 ring-primary ring-offset-2 border-primary-200' : '',
+      ].join(' ')}
+    >
+      <div className="mb-5">
+        <div className="flex items-center gap-2">
+          <h3>Project Health</h3>
+          {highlighted && (
+            <span className="badge bg-primary-50 text-primary-700 text-xs">↑ AI flagged</span>
+          )}
+        </div>
+        <p className="text-xs text-slate-400 mt-0.5">
+          Top-level projects with rolled-up status, velocity, and projected finish. Click to expand subprojects.
+        </p>
+      </div>
+
+      {projects.length === 0 ? (
+        <div className="h-[140px] flex items-center justify-center text-sm text-slate-400">
+          No active projects
+        </div>
+      ) : (
+        <div>
+          {/* Header row */}
+          <div className="grid grid-cols-12 gap-3 px-3 pb-2 text-[10px] font-semibold text-slate-400 uppercase tracking-widest border-b border-slate-100">
+            <div className="col-span-4">Project</div>
+            <div className="col-span-3">Progress</div>
+            <div className="col-span-2 text-right">Deadline</div>
+            <div className="col-span-1 text-right">Velocity</div>
+            <div className="col-span-2 text-right">Status</div>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {projects.map(p => {
+              const hasChildren = p.subprojects.length > 0
+              const hasDirectAndSubs = hasChildren && p.direct_task_total > 0
+              const isExpanded = expandedIds.has(p.id)
+              const parentColor = p.color ?? '#94A3B8'
+              return (
+                <div key={p.id}>
+                  <ProjectRow
+                    project={p}
+                    expanded={hasChildren ? isExpanded : undefined}
+                    onToggle={hasChildren ? () => toggle(p.id) : undefined}
+                  />
+                  {hasChildren && isExpanded && (
+                    <div className="bg-slate-50/30 -mx-1 px-1 py-1 space-y-1 border-l-2" style={{ borderLeftColor: parentColor }}>
+                      {hasDirectAndSubs && <DirectTasksRow project={p} />}
+                      {p.subprojects.map(sp => (
+                        <ProjectRow
+                          key={sp.id}
+                          project={sp}
+                          derivedColor={getSubProjectShade(parentColor)}
+                          nested
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Task completion trend — AreaChart (last 8 weeks)
 // ---------------------------------------------------------------------------
 function TaskTrendChart({ stats, highlighted }: { stats: AnalyticsStats; highlighted: boolean }) {
   const data = stats.tasks.completion_by_week
@@ -110,15 +501,15 @@ function TaskTrendChart({ stats, highlighted }: { stats: AnalyticsStats; highlig
       subtitle="Tasks created vs completed — last 8 weeks"
       highlighted={highlighted}
     >
-      <ResponsiveContainer width="100%" height={200}>
+      <ResponsiveContainer width="100%" height={220}>
         <AreaChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
           <defs>
             <linearGradient id="gradCompleted" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor={chartPalette[0]} stopOpacity={0.2} />
+              <stop offset="5%"  stopColor={chartPalette[0]} stopOpacity={0.25} />
               <stop offset="95%" stopColor={chartPalette[0]} stopOpacity={0} />
             </linearGradient>
             <linearGradient id="gradTotal" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="5%"  stopColor={chartPalette[1]} stopOpacity={0.15} />
+              <stop offset="5%"  stopColor={chartPalette[1]} stopOpacity={0.18} />
               <stop offset="95%" stopColor={chartPalette[1]} stopOpacity={0} />
             </linearGradient>
           </defs>
@@ -145,7 +536,78 @@ function TaskTrendChart({ stats, highlighted }: { stats: AnalyticsStats; highlig
 }
 
 // ---------------------------------------------------------------------------
-// 2. Habit completion rate — BarChart per habit (last 30 days %)
+// Time Allocation This Week — Donut (replaces priority pie)
+// ---------------------------------------------------------------------------
+function TimeAllocationDonut({ stats, highlighted }: { stats: AnalyticsStats; highlighted: boolean }) {
+  const alloc = stats.time_allocation_week
+  const data = alloc.by_project.map(p => ({
+    name:  p.title,
+    value: p.minutes,
+    color: p.color ?? '#94A3B8',
+  }))
+
+  return (
+    <ChartCard
+      title="Time This Week"
+      subtitle={`${alloc.total_hours.toFixed(1)}h scheduled across ${data.length} ${data.length === 1 ? 'bucket' : 'buckets'}`}
+      highlighted={highlighted}
+    >
+      {data.length === 0 ? (
+        <div className="h-[220px] flex items-center justify-center text-sm text-slate-400">
+          No tasks scheduled this week
+        </div>
+      ) : (
+        <>
+          <div className="relative">
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={data}
+                  cx="50%"
+                  cy="50%"
+                  innerRadius={60}
+                  outerRadius={92}
+                  paddingAngle={2}
+                  dataKey="value"
+                >
+                  {data.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip
+                  formatter={(value: any) => [`${(Number(value) / 60).toFixed(1)}h`, 'Scheduled']}
+                  contentStyle={{ fontSize: 12, borderColor: colors.slate[200] }}
+                />
+              </PieChart>
+            </ResponsiveContainer>
+            {/* Centre overlay */}
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-2xl font-bold text-slate-900 leading-none">
+                {alloc.total_hours.toFixed(1)}h
+              </span>
+              <span className="text-[10px] uppercase tracking-widest text-slate-400 mt-1">
+                this week
+              </span>
+            </div>
+          </div>
+          {/* Legend */}
+          <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3 text-xs">
+            {data.map((d, i) => (
+              <div key={i} className="flex items-center gap-1.5 text-slate-600">
+                <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
+                <span className="truncate max-w-[120px] font-medium">{d.name}</span>
+                <span className="text-slate-400 font-mono">{(d.value / 60).toFixed(1)}h</span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </ChartCard>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Habit completion rate — BarChart per habit (last 30 days %)
 // ---------------------------------------------------------------------------
 function HabitBarChart({ stats, highlighted }: { stats: AnalyticsStats; highlighted: boolean }) {
   const data = stats.habits.habits.map((h) => ({
@@ -160,11 +622,11 @@ function HabitBarChart({ stats, highlighted }: { stats: AnalyticsStats; highligh
       highlighted={highlighted}
     >
       {data.length === 0 ? (
-        <div className="h-[200px] flex items-center justify-center text-sm text-slate-400">
+        <div className="h-[220px] flex items-center justify-center text-sm text-slate-400">
           No active habits
         </div>
       ) : (
-        <ResponsiveContainer width="100%" height={200}>
+        <ResponsiveContainer width="100%" height={220}>
           <BarChart data={data} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke={colors.slate[100]} />
             <XAxis dataKey="name" tick={{ fontSize: 11, fill: colors.slate[400] }} />
@@ -186,91 +648,39 @@ function HabitBarChart({ stats, highlighted }: { stats: AnalyticsStats; highligh
 }
 
 // ---------------------------------------------------------------------------
-// 3. Priority breakdown — PieChart (donut)
+// Calendar Load — 24-cell heatmap by hour-of-day
 // ---------------------------------------------------------------------------
-const PRIORITY_COLORS: Record<string, string> = {
-  urgent: colors.danger.DEFAULT,
-  high:   colors.warning.DEFAULT,
-  medium: colors.slate[400],
-  low:    colors.slate[200],
-}
-
-function PriorityPieChart({ stats, highlighted }: { stats: AnalyticsStats; highlighted: boolean }) {
-  const breakdown = stats.tasks.priority_breakdown
-  const data = Object.entries(breakdown).map(([name, value]) => ({ name, value }))
-  return (
-    <ChartCard title="Task Priority Breakdown" highlighted={highlighted}>
-      {data.length === 0 ? (
-        <div className="h-[200px] flex items-center justify-center text-sm text-slate-400">
-          No tasks
-        </div>
-      ) : (
-        <ResponsiveContainer width="100%" height={200}>
-          <PieChart>
-            <Pie
-              data={data}
-              cx="50%" cy="50%"
-              innerRadius={50} outerRadius={80}
-              paddingAngle={3}
-              dataKey="value"
-            >
-              {data.map((entry, i) => (
-                <Cell
-                  key={i}
-                  fill={PRIORITY_COLORS[entry.name] ?? chartPalette[i % chartPalette.length]}
-                />
-              ))}
-            </Pie>
-            <Tooltip
-              formatter={(value, name) => [value ?? 0, String(name)]}
-              contentStyle={{ fontSize: 12, borderColor: colors.slate[200] }}
-            />
-            <Legend
-              iconType="circle"
-              iconSize={8}
-              wrapperStyle={{ fontSize: 12 }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-      )}
-    </ChartCard>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// 4. Busiest hours heatmap — 24 cells with opacity-scaled background
-// ---------------------------------------------------------------------------
-function BusiestHoursHeatmap({ stats }: { stats: AnalyticsStats }) {
+function CalendarLoadHeatmap({ stats }: { stats: AnalyticsStats }) {
   const hours = stats.calendar.busiest_hours
   const maxCount = Math.max(...hours.map((h) => h.count), 1)
   const HOUR_LABELS = [
-    '12a','1a','2a','3a','4a','5a','6a','7a','8a','9a','10a','11a',
-    '12p','1p','2p','3p','4p','5p','6p','7p','8p','9p','10p','11p',
+    '00','01','02','03','04','05','06','07','08','09','10','11',
+    '12','13','14','15','16','17','18','19','20','21','22','23',
   ]
   return (
-    <ChartCard title="Calendar — Busiest Hours" subtitle="Event density by hour of day" highlighted={false}>
+    <ChartCard title="Calendar Load — Hours of Day" subtitle="Event density by hour, all-time" highlighted={false}>
       <div className="grid grid-cols-12 gap-1.5 mt-2">
         {hours.map((h) => {
-          const opacity = h.count === 0 ? 0.06 : 0.15 + (h.count / maxCount) * 0.85
+          const opacity = h.count === 0 ? 0.06 : 0.18 + (h.count / maxCount) * 0.82
           return (
             <div
               key={h.hour}
               title={`${HOUR_LABELS[h.hour]}: ${h.count} event${h.count !== 1 ? 's' : ''}`}
-              className="rounded-sm flex flex-col items-center justify-center h-9 cursor-default"
+              className="group relative rounded-sm flex items-center justify-center h-10 cursor-default"
               style={{ backgroundColor: `rgba(79,70,229,${opacity})` }}
             >
-              <span className="text-[9px] font-medium text-slate-600 leading-none">
+              <span className="text-[10px] font-medium text-slate-700 leading-none transition-opacity group-hover:opacity-0">
                 {HOUR_LABELS[h.hour]}
               </span>
-              {h.count > 0 && (
-                <span className="text-[9px] text-slate-500 leading-none mt-0.5">{h.count}</span>
-              )}
+              <span className="absolute inset-0 flex items-center justify-center text-[11px] font-mono font-semibold text-slate-800 opacity-0 transition-opacity group-hover:opacity-100">
+                {h.count}
+              </span>
             </div>
           )
         })}
       </div>
-      <p className="text-xs text-slate-400 mt-2 text-center">
-        Darker = more events. Hover for count.
+      <p className="text-xs text-slate-400 mt-3 text-center">
+        Darker = more events. Hover a cell to see the count.
       </p>
     </ChartCard>
   )
@@ -304,6 +714,24 @@ const PRIORITY_BADGE_CLASSES: Record<string, string> = {
   low:    'badge bg-slate-100 text-slate-500',
 }
 
+function HeadlineCard({ headline }: { headline: string }) {
+  return (
+    <div className="rounded-xl bg-gradient-to-br from-primary-50 via-white to-primary-50/40 border-2 border-primary-200 p-5 mb-6 shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="w-10 h-10 rounded-lg bg-primary text-white flex items-center justify-center shrink-0 shadow">
+          <Sparkles size={20} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[10px] font-semibold text-primary uppercase tracking-widest mb-1">
+            Executive Summary
+          </p>
+          <p className="text-base font-medium text-slate-900 leading-relaxed">{headline}</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function HighlightsRow({ highlights }: { highlights: InsightHighlight[] }) {
   return (
     <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
@@ -313,7 +741,7 @@ function HighlightsRow({ highlights }: { highlights: InsightHighlight[] }) {
             <TrendIcon trend={h.trend} />
             <TrendArrow trend={h.trend} />
           </div>
-          <div className="text-xl font-bold text-slate-900 dark:text-slate-100">{h.value}</div>
+          <div className="text-xl font-bold text-slate-900">{h.value}</div>
           <div className="metric-label">{h.metric.replace(/_/g, ' ')}</div>
           <p className="text-xs text-slate-500 mt-1 leading-tight">{h.insight}</p>
         </div>
@@ -325,10 +753,10 @@ function HighlightsRow({ highlights }: { highlights: InsightHighlight[] }) {
 function PatternsList({ patterns }: { patterns: InsightPattern[] }) {
   return (
     <div className="space-y-3 mb-6">
-      <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Patterns</h3>
+      <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-widest">Patterns</h3>
       {patterns.map((p, i) => (
         <div key={i} className={`rounded-lg p-4 ${SEVERITY_CLASSES[p.severity] ?? SEVERITY_CLASSES.neutral}`}>
-          <p className="font-semibold text-sm text-slate-800 dark:text-slate-200 mb-1">{p.title}</p>
+          <p className="font-semibold text-sm text-slate-800 mb-1">{p.title}</p>
           <p className="text-sm text-slate-600">{p.description}</p>
         </div>
       ))}
@@ -339,14 +767,14 @@ function PatternsList({ patterns }: { patterns: InsightPattern[] }) {
 function RecommendationsList({ recommendations }: { recommendations: InsightRecommendation[] }) {
   return (
     <div className="space-y-3 mb-6">
-      <h3 className="text-sm font-semibold text-slate-600 dark:text-slate-400 uppercase tracking-widest">Recommendations</h3>
+      <h3 className="text-sm font-semibold text-slate-600 uppercase tracking-widest">Recommendations</h3>
       {recommendations.map((r, i) => (
         <div key={i} className="card p-4 flex gap-3">
           <span className={PRIORITY_BADGE_CLASSES[r.priority] ?? PRIORITY_BADGE_CLASSES.medium}>
             {r.priority}
           </span>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">{r.action}</p>
+            <p className="text-sm font-semibold text-slate-800">{r.action}</p>
             <p className="text-xs text-slate-500 mt-0.5">{r.rationale}</p>
           </div>
         </div>
@@ -372,6 +800,7 @@ function FocusSuggestion({ focus }: { focus: AnalyticsInsights['focus_suggestion
 function InsightsSkeleton() {
   return (
     <div className="animate-pulse space-y-4">
+      <div className="h-20 bg-primary-50 rounded-xl" />
       <div className="grid grid-cols-3 lg:grid-cols-5 gap-3">
         {Array.from({ length: 5 }).map((_, i) => (
           <div key={i} className="metric-tile">
@@ -420,13 +849,15 @@ export function Analytics() {
     onSuccess: (data) => setInsights(data),
   })
 
+  const insightsError = insightsMutation.error as Error | null
+
   return (
     <AppShell
       title="Analytics"
       action={
         <button
           className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-white text-sm font-medium
-                     hover:bg-primary-700 transition-colors duration-100 disabled:opacity-50"
+                     hover:bg-primary-700 transition-colors duration-100 disabled:opacity-50 shadow-sm"
           onClick={() => insightsMutation.mutate()}
           disabled={insightsMutation.isPending || statsLoading}
         >
@@ -435,79 +866,42 @@ export function Analytics() {
         </button>
       }
     >
-      {/* ----------------------------------------------------------------- */}
-      {/* Summary stats row                                                  */}
-      {/* ----------------------------------------------------------------- */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mb-8">
-        {statsLoading ? (
-          Array.from({ length: 7 }).map((_, i) => (
-            <div key={i} className="metric-tile animate-pulse">
-              <div className="h-7 w-10 bg-slate-200 rounded mb-1" />
-              <div className="h-2.5 w-16 bg-slate-100 rounded" />
-            </div>
-          ))
-        ) : (
-          <>
-            <div className="metric-tile">
-              <span className="metric-value">{stats.tasks.total}</span>
-              <span className="metric-label">Tasks total</span>
-            </div>
-            <div className="metric-tile">
-              <span className="metric-value text-success">{stats.tasks.completed}</span>
-              <span className="metric-label">Completed</span>
-            </div>
-            <div className="metric-tile">
-              <span className="metric-value text-danger">{stats.tasks.overdue}</span>
-              <span className="metric-label">Overdue</span>
-            </div>
-            <div className="metric-tile">
-              <span className="metric-value">{stats.tasks.completion_rate}%</span>
-              <span className="metric-label">Done rate</span>
-            </div>
-            <div className="metric-tile">
-              <span className="metric-value">{stats.goals.total}</span>
-              <span className="metric-label">Projects</span>
-            </div>
-            <div className="metric-tile">
-              <span className="metric-value">{stats.habits.total_active}</span>
-              <span className="metric-label">Active habits</span>
-            </div>
-            <div className="metric-tile">
-              <span className="metric-value">{stats.calendar.total_events}</span>
-              <span className="metric-label">Events</span>
-            </div>
-          </>
-        )}
-      </div>
+      {/* Executive Hero Strip */}
+      {statsLoading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="card p-5 animate-pulse h-[88px]" />
+          ))}
+        </div>
+      ) : (
+        <ExecutiveHero stats={stats} />
+      )}
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Charts — row 1: task trend + habit bar                             */}
-      {/* ----------------------------------------------------------------- */}
+      {/* Project Health Board (full width) */}
+      <ProjectHealthBoard stats={stats} highlighted={highlightedCharts.has('project-health')} />
+
+      {/* Charts row 1: trend + time allocation */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <TaskTrendChart
           stats={stats}
           highlighted={highlightedCharts.has('tasks-trend')}
         />
+        <TimeAllocationDonut
+          stats={stats}
+          highlighted={highlightedCharts.has('time-allocation')}
+        />
+      </div>
+
+      {/* Charts row 2: habits + calendar load */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <HabitBarChart
           stats={stats}
           highlighted={highlightedCharts.has('habits-bar')}
         />
+        <CalendarLoadHeatmap stats={stats} />
       </div>
 
-      {/* ----------------------------------------------------------------- */}
-      {/* Charts — row 2: priority pie + busiest hours heatmap               */}
-      {/* ----------------------------------------------------------------- */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-        <PriorityPieChart
-          stats={stats}
-          highlighted={highlightedCharts.has('priority-breakdown')}
-        />
-        <BusiestHoursHeatmap stats={stats} />
-      </div>
-
-      {/* ----------------------------------------------------------------- */}
-      {/* AI Insights panel                                                   */}
-      {/* ----------------------------------------------------------------- */}
+      {/* AI Insights panel */}
       <div className="card p-6">
         <div className="flex items-center gap-2 mb-5">
           <Bot size={18} className="text-primary" />
@@ -521,7 +915,8 @@ export function Analytics() {
 
         {insightsMutation.isError && (
           <div className="rounded-lg bg-danger-light border border-danger p-4 text-sm text-danger">
-            Failed to generate insights. Make sure the backend is running and ANTHROPIC_API_KEY is set.
+            <strong>Failed to generate insights.</strong>{' '}
+            {insightsError?.message || 'Unknown error.'} Check the backend logs for details.
           </div>
         )}
 
@@ -532,20 +927,17 @@ export function Analytics() {
               Click "Generate Insights" to analyse your productivity data with AI
             </p>
             <p className="text-xs text-slate-300 mt-1">
-              Claude will surface patterns, trends, and actionable recommendations
+              Claude will surface a concrete executive summary, patterns, and actionable recommendations
             </p>
           </div>
         )}
 
         {insights && !insightsMutation.isPending && (
           <>
-            {/* Highlights row — metric cards with trend arrows */}
+            {insights.headline && <HeadlineCard headline={insights.headline} />}
             <HighlightsRow highlights={insights.highlights} />
-            {/* Patterns — coloured left-border cards */}
             <PatternsList patterns={insights.patterns} />
-            {/* Recommendations — priority-badged action items */}
             <RecommendationsList recommendations={insights.recommendations} />
-            {/* Focus suggestion — prominent indigo card */}
             <FocusSuggestion focus={insights.focus_suggestion} />
           </>
         )}

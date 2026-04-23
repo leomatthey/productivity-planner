@@ -888,10 +888,14 @@ def get_analytics_stats() -> dict:
                 dow = c.completed_date.weekday()
                 dow_counts[dow] = dow_counts.get(dow, 0) + 1
             best_dow = max(dow_counts, key=lambda k: dow_counts[k]) if dow_counts else None
+            # Last 7 days for the executive hero "habit consistency" metric
+            seven_day_start = today - timedelta(days=6)
+            completions_7d = {c.completed_date for c in completions if c.completed_date >= seven_day_start}
             habit_stats.append({
                 "id": habit.id,
                 "title": habit.title,
                 "completion_rate_30d": round(len(completed_days) / 30 * 100, 1),
+                "completion_rate_7d": round(len(completions_7d) / 7 * 100, 1),
                 "completions_30d": len(completed_days),
                 "streak_current": habit.streak_current or 0,
                 "streak_best": habit.streak_best or 0,
@@ -942,6 +946,183 @@ def get_analytics_stats() -> dict:
             {"hour": i, "count": hour_counts_cal[i]} for i in range(24)
         ]
 
+        # ---- PROJECT HEALTH BOARD (with parent → subprojects rollup) ----
+        # Top-level projects (parent_id IS NULL) appear as rows with metrics rolled
+        # up across the parent's own tasks PLUS all its subprojects' tasks.
+        # Each entry also carries `subprojects[]` — child projects' OWN unaggregated
+        # metrics, used by the frontend's expandable sub-rows.
+        velocity_window_start = today - timedelta(weeks=4)
+
+        # Build parent_id → [children] map (one level only; archived/deleted skipped).
+        children_by_parent: dict = {}
+        for g in all_goals:
+            if g.parent_id is None or g.status == "archived":
+                continue
+            children_by_parent.setdefault(g.parent_id, []).append(g)
+
+        def _build_entry(goal, effective_tasks, child_entries=None, direct_tasks=None):
+            """Compute a project-health entry from an effective task pool."""
+            t_total = len(effective_tasks)
+            t_done  = sum(1 for t in effective_tasks if t.status == "done")
+            t_left  = t_total - t_done
+
+            recent_done = sum(
+                1 for t in effective_tasks
+                if t.status == "done"
+                and t.updated_at and t.updated_at.date() >= velocity_window_start
+            )
+            velocity = round(recent_done / 4, 2)
+
+            projected = None
+            if velocity > 0 and t_left > 0:
+                projected = today + timedelta(weeks=t_left / velocity)
+
+            # RAG status — favours signal over noise.
+            if not goal.target_date:
+                status = "no_deadline"
+            elif t_total > 0 and t_left == 0:
+                status = "on_track"  # actually done
+            elif t_total == 0:
+                status = "at_risk"   # has deadline, but nothing to do?
+            elif velocity == 0:
+                status = "at_risk"   # has work, no momentum
+            elif projected and projected > goal.target_date + timedelta(days=3):
+                status = "off_track"
+            elif projected and projected > goal.target_date - timedelta(days=3):
+                status = "at_risk"
+            else:
+                status = "on_track"
+
+            # Progress: prefer task-derived when there are tasks; else fall back to manual.
+            progress_pct = goal.progress_pct or 0
+            if t_total > 0:
+                progress_pct = round(t_done / t_total * 100)
+
+            days_to_target = (goal.target_date - today).days if goal.target_date else None
+
+            direct_total = len(direct_tasks) if direct_tasks is not None else t_total
+            direct_done  = sum(1 for t in direct_tasks if t.status == "done") if direct_tasks is not None else t_done
+
+            return {
+                "id":                    goal.id,
+                "title":                 goal.title,
+                "color":                 goal.color,
+                "progress_pct":          progress_pct,
+                "target_date":           goal.target_date.isoformat() if goal.target_date else None,
+                "days_to_target":        days_to_target,
+                "task_total":            t_total,
+                "task_done":             t_done,
+                "task_remaining":        t_left,
+                "velocity_per_week":     velocity,
+                "projected_finish_date": projected.isoformat() if projected else None,
+                "status":                status,
+                "subprojects":           child_entries or [],
+                "direct_task_total":     direct_total,
+                "direct_task_done":      direct_done,
+            }
+
+        active_projects_data = []
+        for goal in all_goals:
+            if goal.parent_id is not None:
+                continue  # subprojects nested under their parent only
+            if goal.status != "active":
+                continue
+
+            own_tasks = [t for t in all_tasks if t.project_id == goal.id]
+            children  = children_by_parent.get(goal.id, [])
+
+            # Each child entry: its own (unaggregated) metrics.
+            child_entries = []
+            for child in children:
+                child_tasks = [t for t in all_tasks if t.project_id == child.id]
+                child_entries.append(_build_entry(child, child_tasks))
+
+            # Aggregated effective pool for the parent row.
+            effective_tasks = list(own_tasks)
+            for child in children:
+                effective_tasks.extend(t for t in all_tasks if t.project_id == child.id)
+
+            active_projects_data.append(_build_entry(
+                goal, effective_tasks, child_entries=child_entries, direct_tasks=own_tasks,
+            ))
+
+        # Sort: off_track first, then at_risk, then on_track / no_deadline / done.
+        _STATUS_ORDER = {"off_track": 0, "at_risk": 1, "on_track": 2, "no_deadline": 3}
+        active_projects_data.sort(key=lambda p: (_STATUS_ORDER.get(p["status"], 99), p["title"].lower()))
+
+        # ---- TIME ALLOCATION (this week + last week, aggregated to top-level project) ----
+        # Local week bounds → naive UTC for comparing against tasks.scheduled_at.
+        from datetime import time as time_
+        from utils.tz import from_user_naive
+
+        week_start_local = today - timedelta(days=today.weekday())  # Monday
+        week_end_local   = week_start_local + timedelta(days=7)
+        last_week_start_local = week_start_local - timedelta(days=7)
+
+        week_start_utc       = from_user_naive(datetime.combine(week_start_local, time_.min))
+        week_end_utc         = from_user_naive(datetime.combine(week_end_local,   time_.min))
+        last_week_start_utc  = from_user_naive(datetime.combine(last_week_start_local, time_.min))
+
+        # Walk parent_id chain to collapse subprojects into their top-level ancestor.
+        goals_by_id = {g.id: g for g in all_goals}
+        def _top_level_id(gid):
+            cur = goals_by_id.get(gid)
+            seen = set()
+            while cur and cur.parent_id is not None and cur.id not in seen:
+                seen.add(cur.id)
+                cur = goals_by_id.get(cur.parent_id)
+            return cur.id if cur else gid
+
+        top_level_lookup = {g.id: _top_level_id(g.id) for g in all_goals}
+
+        time_alloc: dict = {}
+        unassigned_minutes = 0
+        last_week_total_minutes = 0
+        for t in all_tasks:
+            if not t.scheduled_at or not t.estimated_minutes:
+                continue
+            if week_start_utc <= t.scheduled_at < week_end_utc:
+                if t.project_id is None:
+                    unassigned_minutes += t.estimated_minutes
+                else:
+                    parent_id = top_level_lookup.get(t.project_id, t.project_id)
+                    time_alloc[parent_id] = time_alloc.get(parent_id, 0) + t.estimated_minutes
+            elif last_week_start_utc <= t.scheduled_at < week_start_utc:
+                last_week_total_minutes += t.estimated_minutes
+
+        # Use top-level metadata only — sub-project hours roll up into their parent.
+        top_level_meta = {g.id: (g.title, g.color) for g in all_goals if g.parent_id is None}
+        allocation_list = []
+        for pid, minutes in time_alloc.items():
+            title, color = top_level_meta.get(pid, (f"Project {pid}", None))
+            allocation_list.append({
+                "project_id": pid,
+                "title": title,
+                "color": color,
+                "minutes": minutes,
+                "hours": round(minutes / 60, 1),
+            })
+        allocation_list.sort(key=lambda x: x["minutes"], reverse=True)
+        if unassigned_minutes > 0:
+            allocation_list.append({
+                "project_id": None,
+                "title": "Unassigned",
+                "color": None,
+                "minutes": unassigned_minutes,
+                "hours": round(unassigned_minutes / 60, 1),
+            })
+
+        total_minutes = sum(a["minutes"] for a in allocation_list)
+        time_allocation_week = {
+            "by_project":              allocation_list,
+            "total_minutes":           total_minutes,
+            "total_hours":             round(total_minutes / 60, 1),
+            "last_week_total_minutes": last_week_total_minutes,
+            "last_week_total_hours":   round(last_week_total_minutes / 60, 1),
+            "week_start":              week_start_local.isoformat(),
+            "week_end":                (week_end_local - timedelta(days=1)).isoformat(),
+        }
+
         return {
             "tasks": {
                 "total": task_total,
@@ -974,6 +1155,8 @@ def get_analytics_stats() -> dict:
                 "busiest_days": busiest_days,
                 "busiest_hours": busiest_hours,
             },
+            "projects": active_projects_data,
+            "time_allocation_week": time_allocation_week,
         }
 
 

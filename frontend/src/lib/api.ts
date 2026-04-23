@@ -326,6 +326,8 @@ export type InsightMetricKey =
   | 'habit_completion_rate'
   | 'top_habit_streak'
   | 'goal_progress'
+  | 'project_health'
+  | 'time_allocation'
 
 export interface InsightHighlight {
   metric: InsightMetricKey
@@ -347,7 +349,7 @@ export interface InsightRecommendation {
 }
 
 export interface AnalyticsInsights {
-  summary: string
+  headline: string
   highlights: InsightHighlight[]
   patterns: InsightPattern[]
   recommendations: InsightRecommendation[]
@@ -373,8 +375,47 @@ export interface AnalyticsHabitEntry {
   id: number
   title: string
   completion_rate_30d: number
+  completion_rate_7d: number
   streak_current: number
   streak_best: number
+}
+
+export type ProjectHealthStatus = 'on_track' | 'at_risk' | 'off_track' | 'no_deadline'
+
+export interface AnalyticsProject {
+  id: number
+  title: string
+  color: string | null
+  progress_pct: number
+  target_date: string | null
+  days_to_target: number | null
+  task_total: number       // aggregated (own + subprojects)
+  task_done: number        // aggregated
+  task_remaining: number   // aggregated
+  velocity_per_week: number
+  projected_finish_date: string | null
+  status: ProjectHealthStatus
+  subprojects: AnalyticsProject[]   // child projects' OWN unaggregated metrics
+  direct_task_total: number          // tasks directly on this goal (no children)
+  direct_task_done: number
+}
+
+export interface TimeAllocationEntry {
+  project_id: number | null
+  title: string
+  color: string | null
+  minutes: number
+  hours: number
+}
+
+export interface TimeAllocationWeek {
+  by_project: TimeAllocationEntry[]
+  total_minutes: number
+  total_hours: number
+  last_week_total_minutes: number
+  last_week_total_hours: number
+  week_start: string
+  week_end: string
 }
 
 export interface AnalyticsHabitStats {
@@ -403,6 +444,8 @@ export interface AnalyticsStats {
   habits: AnalyticsHabitStats
   goals: AnalyticsGoalStats
   calendar: AnalyticsCalendarStats
+  projects: AnalyticsProject[]
+  time_allocation_week: TimeAllocationWeek
 }
 
 export const analytics = {
